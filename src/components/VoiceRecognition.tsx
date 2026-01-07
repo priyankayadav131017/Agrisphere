@@ -38,7 +38,7 @@ const VoiceRecognition = () => {
         setTranscript(spokenText);
         setIsListening(false);
         setIsProcessing(true);
-        
+
         // Stop recognition to prevent continuous listening
         if (recognition.current) {
           recognition.current.stop();
@@ -53,10 +53,10 @@ const VoiceRecognition = () => {
             },
             body: JSON.stringify({ text: spokenText })
           });
-          
+
           let aiResponse = '';
           let hindiTranslation = '';
-          
+
           if (response.ok) {
             const data = await response.json();
             aiResponse = data.response.text;
@@ -66,12 +66,12 @@ const VoiceRecognition = () => {
             aiResponse = await mockChatWithAI(spokenText);
             hindiTranslation = aiResponse;
           }
-          
+
           setResponse(aiResponse);
           setHindiResponse(hindiTranslation);
 
           // Speak the response
-          speakResponse(selectedLanguage === 'hi-IN' ? hindiTranslation : aiResponse);
+          speakResponse(aiResponse);
         } catch (error) {
           console.error('Voice processing error:', error);
           setResponse('Sorry, I encountered an error processing your request.');
@@ -90,7 +90,7 @@ const VoiceRecognition = () => {
       recognition.current.onend = () => {
         setIsListening(false);
       };
-      
+
       recognition.current.onstart = () => {
         console.log('Speech recognition started');
       };
@@ -131,25 +131,25 @@ const VoiceRecognition = () => {
       utteranceRef.current = utterance;
       utterance.lang = selectedLanguage;
       utterance.rate = 0.8;
-      
+
       utterance.onstart = () => {
         setIsSpeaking(true);
       };
-      
+
       utterance.onend = () => {
         setIsSpeaking(false);
         utteranceRef.current = null;
       };
-      
+
       utterance.onerror = () => {
         setIsSpeaking(false);
         utteranceRef.current = null;
       };
-      
+
       speechSynthesis.speak(utterance);
     }
   };
-  
+
   const stopSpeaking = () => {
     if ('speechSynthesis' in window && isSpeaking) {
       speechSynthesis.cancel();
@@ -157,7 +157,7 @@ const VoiceRecognition = () => {
       utteranceRef.current = null;
     }
   };
-  
+
   const pauseResumeSpeaking = () => {
     if ('speechSynthesis' in window) {
       if (isSpeaking) {
@@ -205,9 +205,8 @@ const VoiceRecognition = () => {
       <Card className="p-6 text-center">
         <div className="space-y-4">
           <motion.div
-            className={`w-32 h-32 mx-auto rounded-full flex items-center justify-center ${
-              isListening ? 'bg-red-500 animate-pulse' : 'bg-primary'
-            }`}
+            className={`w-32 h-32 mx-auto rounded-full flex items-center justify-center ${isListening ? 'bg-red-500 animate-pulse' : 'bg-primary'
+              }`}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
           >
@@ -215,9 +214,8 @@ const VoiceRecognition = () => {
               size="lg"
               onClick={isListening ? stopListening : startListening}
               disabled={isProcessing}
-              className={`w-24 h-24 rounded-full transition-all duration-300 ${
-                isListening ? 'bg-red-600 hover:bg-red-700 animate-pulse' : 'bg-primary hover:bg-primary/90'
-              }`}
+              className={`w-24 h-24 rounded-full transition-all duration-300 ${isListening ? 'bg-red-600 hover:bg-red-700 animate-pulse' : 'bg-primary hover:bg-primary/90'
+                }`}
             >
               {isListening ? (
                 <MicOff className="w-8 h-8" />
@@ -281,7 +279,7 @@ const VoiceRecognition = () => {
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => speakResponse(hindiResponse || response)}
+                      onClick={() => speakResponse(response || hindiResponse)}
                     >
                       <Volume2 className="w-4 h-4" />
                     </Button>
@@ -289,16 +287,11 @@ const VoiceRecognition = () => {
                 </div>
               </div>
               <div className="space-y-2">
-                {hindiResponse && (
-                  <p className="text-primary font-medium">{hindiResponse}</p>
-                )}
-                {response !== hindiResponse && (
-                  <p className="text-muted-foreground text-sm">{response}</p>
-                )}
+                <p className="text-primary font-medium text-lg leading-relaxed">{response}</p>
               </div>
             </Card>
           )}
-        </motion.div>
+        </motion.div >
       )}
 
       {/* Example Questions */}
@@ -324,10 +317,10 @@ const VoiceRecognition = () => {
                         },
                         body: JSON.stringify({ text: q.hindi })
                       });
-                      
+
                       let aiResponse = '';
                       let hindiTranslation = '';
-                      
+
                       if (response.ok) {
                         const data = await response.json();
                         aiResponse = data.response.text;
@@ -337,10 +330,10 @@ const VoiceRecognition = () => {
                         aiResponse = await mockChatWithAI(q.hindi);
                         hindiTranslation = aiResponse;
                       }
-                      
+
                       setResponse(aiResponse);
                       setHindiResponse(hindiTranslation);
-                      speakResponse(hindiTranslation);
+                      speakResponse(aiResponse);
                     } catch (error) {
                       console.error('Voice query error:', error);
                       setResponse('Sorry, I encountered an error.');
@@ -385,7 +378,7 @@ const VoiceRecognition = () => {
         <p><strong>Note:</strong> Voice recognition requires a modern browser with microphone permissions. Works best in Chrome/Edge.</p>
         <p><strong>नोट:</strong> आवाज़ पहचान के लिए आधुनिक ब्राउज़र और माइक्रोफ़ोन की अनुमति चाहिए।</p>
       </div>
-    </div>
+    </div >
   );
 };
 

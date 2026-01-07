@@ -10,20 +10,21 @@ export const fetchFarmingNews = async (language: "Hindi" | "English" = "English"
         return [];
     }
 
-    // Strict queries to filter out noise
-    const englishQuery = '(agriculture OR farming OR farmers OR "kisan scheme") AND India -"politics" -"election" -"cricket" -"advertising" -"movie" -"bollywood" -"nasa" -"space"';
-    // Hindi keywords attempt - Note: NewsAPI support for Hindi content is variable
-    const hindiQuery = '(कृषि OR किसान OR खेती OR "फसल बीमा") -"politics" -"election" -"cricket"';
+    // STRENGTHENED Strict queries to filter out noise
+    // We require "agriculture" or "farming" in title/description via NewsAPI if possible, or filter post-fetch.
+    const englishQuery = '(agriculture OR farming OR horticulture OR "kisan scheme" OR "crop yield" OR "MSP price") AND India AND (government OR technology OR weather OR subsidy OR "crop insurance") -"politics" -"election" -"cricket" -"advertising" -"movie" -"bollywood" -"nasa" -"space" -"opinion" -"editorial" -"stock market"';
+
+    // Hindi keywords
+    const hindiQuery = '(कृषि OR किसान OR खेती OR "फसल बीमा" OR "एमएसपी") -"politics" -"election" -"cricket" -"bollywood"';
 
     try {
         const response = await axios.get(BASE_URL, {
             params: {
                 q: language === "Hindi" ? hindiQuery : englishQuery,
                 sortBy: "publishedAt",
-                // 'hi' is the code for Hindi, 'en' for English
                 language: language === "Hindi" ? "hi" : "en",
                 apiKey: NEWS_API_KEY,
-                pageSize: 12, // Increased slightly to allow for post-filtering if needed
+                pageSize: 40, // Fetch more to survive strict filtering
                 page: page,
             },
         });
@@ -32,13 +33,29 @@ export const fetchFarmingNews = async (language: "Hindi" | "English" = "English"
             return response.data.articles.filter((article: any) =>
                 article.title &&
                 article.urlToImage &&
-                article.description && // Ensure description exists
-                article.description !== "No description available." && // Filter out placeholder descriptions
-                // Extra safety filter for common unrelated terms that might slip through
+                article.description &&
+                article.description !== "No description available." &&
+                // Post-filtering for stricter relevance
                 !article.title.toLowerCase().includes("advertising") &&
                 !article.title.toLowerCase().includes("nasa") &&
-                !article.title.toLowerCase().includes("gherkin") && // User requested removal
-                !article.title.toLowerCase().includes("tariff") // Filter out trade/export specific news if requested
+                !article.title.toLowerCase().includes("opinion") &&
+                !article.title.toLowerCase().includes("editorial") &&
+                !article.title.toLowerCase().includes("chaos") &&
+                !article.title.toLowerCase().includes("billionaire") &&
+                !article.source.name.includes("Gizmodo") &&
+                !article.source.name.includes("TechCrunch") &&
+                (
+                    // Ensure positive relevance in Title if possible
+                    article.title.toLowerCase().includes("farm") ||
+                    article.title.toLowerCase().includes("agri") ||
+                    article.title.toLowerCase().includes("crop") ||
+                    article.title.toLowerCase().includes("seed") ||
+                    article.title.toLowerCase().includes("rain") ||
+                    article.title.toLowerCase().includes("monsoon") ||
+                    article.title.toLowerCase().includes("rural") ||
+                    article.title.toLowerCase().includes("kisan") ||
+                    article.description.toLowerCase().includes("farm")
+                )
             ).map((article: any) => ({
                 title: article.title,
                 description: article.description || "No description available.",

@@ -13,6 +13,60 @@ from improved_voice_assistant import AgriVoiceAssistant
 import recommendation_engine
 import pest_engine
 import market_engine
+import base64
+
+def encode_image(image_path):
+    with open(image_path, "rb") as image_file:
+        return base64.b64encode(image_file.read()).decode('utf-8')
+
+def verify_plant_with_groq(image_path):
+    """
+    Verify if the uploaded image contains a plant using Groq's Llama 4 Scout model.
+    Returns: (is_plant: bool, message: str)
+    """
+    try:
+        from groq import Groq
+        api_key = os.getenv("GROQ_API_KEY") or os.getenv("VITE_GROQ_CHATBOT_API_KEY")
+        if not api_key:
+            print("Groq API Key missing for plant verification")
+            return True, "Verification skipped (No API Key)"
+
+        client = Groq(api_key=api_key)
+        base64_image = encode_image(image_path)
+
+        prompt = "Strictly analyze this image. Is it a plant, crop, fruit, vegetable, leaf, or soil? Answer 'YES' only if it is clearly related to agriculture or nature. If it is a man-made object, animal, human, or random object (like candy, toy, car), answer 'NO'. Answer with just 'YES' or 'NO'."
+
+        completion = client.chat.completions.create(
+            model="meta-llama/llama-4-scout-17b-16e-instruct",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{base64_image}"
+                            }
+                        }
+                    ]
+                }
+            ],
+            temperature=0.1,
+            max_tokens=10
+        )
+        
+        response = completion.choices[0].message.content.strip().upper()
+        print(f"Plant Verification Response: {response}")
+        
+        if "YES" in response:
+            return True, "Plant detected"
+        else:
+            return False, response
+
+    except Exception as e:
+        print(f"Plant verification error: {e}")
+        return True, f"Verification skipped (Error: {str(e)})" # Fail open on error
 
 app = Flask(__name__)
 CORS(app)
@@ -270,6 +324,14 @@ def detect_disease():
             temp_path = temp_file.name
 
         try:
+            # 1. Verify if it is a plant using Groq Vision
+            is_plant, verification_msg = verify_plant_with_groq(temp_path)
+            if not is_plant:
+                return jsonify({
+                    'error': f"Cannot detect. This is not a plant. ({verification_msg})",
+                    'is_plant': False
+                }), 400
+
             # Try Archive4 model first (TensorFlow)
             if os.path.exists('archive4_model_output/model.h5'):
                 predicted_class, confidence = predict_disease_archive4(temp_path)
@@ -456,45 +518,167 @@ def get_voice_examples():
 @app.route('/recommend-fertilizer', methods=['POST'])
 def recommend_fertilizer():
     """
-    Get fertilizer and irrigation recommendations based on crop and environmental data.
+    Get fertilizer and irrigation recommendations based on crop and environmental data using Groq (Llama 3).
     """
     try:
         data = request.json
         if not data:
             return jsonify({'error': 'No input data provided'}), 400
             
-        # Log the request for debugging
         print(f"Recommendation Request: {data}")
-        
-        # Get recommendation from engine
-        recommendation = recommendation_engine.engine_run(data)
+
+        # Initialize Groq client
+        from groq import Groq
+        api_key = os.getenv("GROQ_API_KEY") or os.getenv("VITE_GROQ_CHATBOT_API_KEY")
+        if not api_key:
+             return jsonify({'error': 'GROQ_API_KEY not found'}), 500
+             
+        client = Groq(api_key=api_key)
+
+        # Construct Prompt
+        prompt = f"""
+        You are an expert agricultural scientist following ICAR (Indian Council of Agricultural Research) and FAO standards.
+        Analyze the following field data and provide a precise fertilizer and irrigation plan.
+
+        Field Data:
+        - Crop: {data.get('crop')}
+        - Soil N-P-K: {data.get('soil_n')}-{data.get('soil_p')}-{data.get('soil_k')}
+        - Soil pH: {data.get('soil_ph')}
+        - Soil Moisture: {data.get('soil_moisture')}%
+        - Rainfall Forecast: {data.get('rainfall')} mm
+        - Growth Stage: {data.get('stage')}
+        - Soil Type: {data.get('soil_type')}
+
+        Task:
+        1. Calculate N-P-K recommendation in kg/ha based on crop needs and soil status.
+        2. Provide irrigation advice based on moisture and rainfall.
+        3. Suggest pH corrections if needed.
+        4. List 2-3 specific agronomic adjustments (e.g., split application).
+
+        Return ONLY valid JSON in this exact structure:
+        {{
+            "source": "AgriSphere AI (ICAR/FAO Standards)",
+            "fertilizer": {{
+                "nitrogen": "XX kg/ha",
+                "phosphorus": "XX kg/ha",
+                "potassium": "XX kg/ha",
+                "adjustments": ["Tip 1", "Tip 2"]
+            }},
+            "soil_health": {{
+                "ph_status": {data.get('soil_ph')},
+                "ph_recommendation": "Advice for pH correction or maintenance",
+                "recommendation": "General soil health tip"
+            }},
+            "irrigation": {{
+                "status": "Irrigate Immediately" OR "No Irrigation Needed",
+                "water_amount": "XX mm",
+                "schedule": {{
+                    "next_3_days": "Rain Expected" OR "Clear"
+                }}
+            }}
+        }}
+        """
+
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": "You are a helpful agricultural AI. Output valid JSON only."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.2,
+            max_tokens=600,
+            response_format={"type": "json_object"}
+        )
+
+        response_content = completion.choices[0].message.content
+        recommendation = json.loads(response_content)
         
         return jsonify(recommendation)
         
     except Exception as e:
-        print(f"Recommendation Error: {e}")
+        print(f"Groq Recommendation Error: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/predict-pest', methods=['POST'])
 def predict_pest():
     """
-    Get pest risk prediction based on weather data.
+    Get pest risk prediction based on weather data using Groq (Llama 3).
     """
     try:
         data = request.json
         if not data:
             return jsonify({'error': 'No input data provided'}), 400
             
-        # Log request
         print(f"Pest Prediction Request: {data}")
+
+        # Initialize Groq client
+        from groq import Groq
+        api_key = os.getenv("GROQ_API_KEY") or os.getenv("VITE_GROQ_CHATBOT_API_KEY")
+        if not api_key:
+             return jsonify({'error': 'GROQ_API_KEY not found'}), 500
+             
+        client = Groq(api_key=api_key)
         
-        # Get prediction from engine
-        result = pest_engine.predict_pest_risk(data)
+        # Get next 7 days for forecast labels
+        from datetime import datetime, timedelta
+        days = [(datetime.now() + timedelta(days=i)).strftime("%a") for i in range(7)]
+        days_str = ", ".join(days)
+
+        prompt = f"""
+        You are an expert agricultural entomologist following strictly ICAR (Indian Council of Agricultural Research) and FAO protocols.
+        Analyze the following environmental conditions and predict the pest attack risk for the specified crop.
+
+        Conditions:
+        - Crop: {data.get('crop')}
+        - Temperature: {data.get('temp')}°C
+        - Humidity: {data.get('humidity')}%
+        - Rainfall: {data.get('rainfall')} mm
+
+        Task:
+        1. Identify the most likely pest threat for this crop under these conditions according to Indian agricultural region standards.
+        2. Estimate the risk probability (0-100%).
+        3. Determine risk level (Low/Medium/High).
+        4. Provide a specific preventive or curative recommendation (ICAR approved).
+        5. Forecast risk trend for the next 7 days ({days_str}) based on simple weather assumptions (e.g., if high humidity persists).
+
+        Return ONLY valid JSON in this exact structure:
+        {{
+            "primary_pest": {{
+                "pest_name": "Name of Pest",
+                "risk_score": 85,
+                "risk_level": "High",
+                "recommendation": "Specific advice"
+            }},
+            "forecast_7_days": [
+                {{ "day": "{days[0]}", "risk_score": 80 }},
+                {{ "day": "{days[1]}", "risk_score": 82 }},
+                {{ "day": "{days[2]}", "risk_score": 75 }},
+                {{ "day": "{days[3]}", "risk_score": 70 }},
+                {{ "day": "{days[4]}", "risk_score": 65 }},
+                {{ "day": "{days[5]}", "risk_score": 60 }},
+                {{ "day": "{days[6]}", "risk_score": 55 }}
+            ]
+        }}
+        """
+
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": "You are a helpful agricultural AI. Output valid JSON only."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.2,
+            max_tokens=600,
+            response_format={"type": "json_object"}
+        )
+
+        response_content = completion.choices[0].message.content
+        result = json.loads(response_content)
         
         return jsonify(result)
         
     except Exception as e:
-        print(f"Pest Prediction Error: {e}")
+        print(f"Groq Pest Prediction Error: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/market-advisory', methods=['POST'])
@@ -515,6 +699,7 @@ def market_advisory():
         print(f"Market Advisory Error: {e}")
         return jsonify({'error': str(e)}), 500
 
+<<<<<<< HEAD
 @app.route('/marketplace/listings', methods=['GET'])
 def get_marketplace_listings():
     """Get all produce listings from other farmers"""
@@ -553,6 +738,186 @@ def add_marketplace_listing():
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+=======
+@app.route('/generate-digital-twin', methods=['POST'])
+def generate_digital_twin():
+    try:
+        data = request.json
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+
+        print(f"Generating Digital Twin for: {data}")
+        
+        # Call Groq to generate realistic farm data
+        success, result = generate_digital_twin_with_groq(data)
+        
+        if success:
+            return jsonify(result)
+        else:
+            return jsonify({'error': result}), 500
+
+    except Exception as e:
+        print(f"Error in digital twin generation: {e}")
+        return jsonify({'error': str(e)}), 500
+
+def generate_digital_twin_with_groq(farm_data):
+    """
+    Generate realistic digital twin data using Groq based on location (Lat/Lng OR Text) and size.
+    """
+    try:
+        from groq import Groq
+        api_key = os.getenv("GROQ_API_KEY") or os.getenv("VITE_GROQ_CHATBOT_API_KEY")
+        if not api_key:
+            return False, "Groq API Key missing"
+
+        client = Groq(api_key=api_key)
+        
+        # Calculate hectares from acres (approx)
+        acres = float(farm_data.get('size', 10))
+        hectares = round(acres * 0.404686, 2)
+        
+        # Construct Location Context
+        lat = farm_data.get('latitude')
+        lng = farm_data.get('longitude')
+        location_text = ""
+        
+        if farm_data.get('town') and farm_data.get('district'):
+            location_text = f"{farm_data.get('town')}, {farm_data.get('district')}, {farm_data.get('state')}"
+        
+        prompt = f"""
+        Generate a realistic 'Digital Twin' dataset for a farm.
+        
+        INPUTS:
+        - Name: {farm_data.get('farmName')}
+        - Owner: {farm_data.get('ownerName')}
+        - Size: {acres} Acres ({hectares} Hectares)
+        - Location Coordinates: Lat {lat}, Lng {lng}
+        - Location Name: {location_text}
+        
+        Task:
+        1. **Location Resolution**: 
+           - If 'Location Name' is provided but Coordinates are missing/zero, ESTIMATE the Lat/Lng for that town/village.
+           - If Coordinates are provided, use them to identify the micro-region.
+           
+        2. **Agricultural Profiling (DIVERSITY IS CRITICAL)**:
+           - Create a UNIQUE profile specific to this exact location.
+           - **CRITICAL**: Generate AT LEAST 3-4 *DISTINCT* items for Pests and Crops. Do NOT repeat the same pest/crop 4 times.
+           - Example: If Pest 1 is "Stem Borer", Pest 2 MUST be different (e.g., "Leaf Folder").
+           - Example: Include variety in Crop Stages (e.g., one field "vegetative", another "flowering").
+
+        OUTPUT JSON format ONLY. Structure:
+        {{
+            "location": {{ "lat": 22.123, "lng": 88.123 }}, 
+            "farmBoundary": {{ "area": {hectares} }},
+            "visual_summary": "Located in [Town], [District]. The soil is [Type], suitable for [Crops].",
+            "soilZones": [
+                {{ "id": "zone-1", "soilType": "loamy", "ph": 6.5, "nutrients": {{ "nitrogen": 40, "phosphorus": 30, "potassium": 20 }}, "organicMatter": 3.5, "fertility": "high", "recommendations": ["specific advice"] }},
+                {{ "id": "zone-2", "soilType": "sandy loam", "ph": 7.0, "nutrients": {{ "nitrogen": 35, "phosphorus": 25, "potassium": 15 }}, "organicMatter": 3.0, "fertility": "medium", "recommendations": ["different advice"] }}
+            ],
+            "irrigationZones": [
+                {{ "id": "irrig-1", "type": "drip", "efficiency": 92, "status": "active" }}
+            ],
+            "pestProneAreas": [
+                 {{ "id": "pest-1", "pestType": "Specific Pest A", "riskLevel": "high", "preventiveMeasures": ["measure A"] }},
+                 {{ "id": "pest-2", "pestType": "Specific Pest B", "riskLevel": "medium", "preventiveMeasures": ["measure B"] }},
+                 {{ "id": "pest-3", "pestType": "Specific Pest C", "riskLevel": "low", "preventiveMeasures": ["measure C"] }}
+            ],
+            "cropGrowthStages": [
+                 {{ "id": "crop-1", "cropType": "Crop A", "stage": "vegetative", "health": 85, "plantingDate": "2024-11-01" }},
+                 {{ "id": "crop-2", "cropType": "Crop B", "stage": "flowering", "health": 90, "plantingDate": "2024-10-15" }},
+                 {{ "id": "crop-3", "cropType": "Crop C", "stage": "harvesting", "health": 80, "plantingDate": "2024-09-01" }}
+            ],
+            "weatherData": {{ "temperature": 28, "humidity": 60, "rainfall": 12, "windSpeed": 5 }}
+        }}
+        """
+
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": "You are an agricultural data scientist. Provide specific, variable, and diverse data. Never repeat the same item in a list."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.8,
+            max_tokens=2500,
+            response_format={"type": "json_object"}
+        )
+        
+        response_content = completion.choices[0].message.content
+        result = json.loads(response_content)
+        return True, result
+
+    except Exception as e:
+        print(f"Groq generation error: {e}")
+        return False, str(e)
+
+@app.route('/analyze-health', methods=['POST'])
+def analyze_health():
+    """
+    Analyze overall plant health using Groq based on detected issues.
+    """
+    try:
+        data = request.json
+        if not data:
+            return jsonify({'error': 'No input data provided'}), 400
+
+        print(f"Health Analysis Request: {data}")
+
+        # Initialize Groq client
+        from groq import Groq
+        api_key = os.getenv("GROQ_API_KEY") or os.getenv("VITE_GROQ_CHATBOT_API_KEY")
+        if not api_key:
+             return jsonify({'error': 'GROQ_API_KEY not found'}), 500
+             
+        client = Groq(api_key=api_key)
+
+        prompt = f"""
+        You are an expert agricultural scientist. Analyze the following plant health findings and provide a summary assessment.
+        
+        Findings:
+        - Diseases: {json.dumps(data.get('diseases', []), indent=2)}
+        - Pests: {json.dumps(data.get('pests', []), indent=2)}
+        - Nutrient Deficiencies: {json.dumps(data.get('nutrients', []), indent=2)}
+        - Soil Analysis: {json.dumps(data.get('soil', {}), indent=2)}
+        
+        Task:
+        1. Determine an overall Health Score (0-100). 100 is perfect health, 0 is dead. Be realistic based on severity.
+        2. Assign a Health Status (one of: 'excellent', 'good', 'fair', 'poor', 'critical').
+        3. Provide 3 specific, high-priority, actionable recommendations for the farmer. Focus on the most critical issues first.
+           - Recommendations should be concise instructions (e.g., "Apply copper fungicide immediately").
+           
+        Return ONLY valid JSON in this exact structure:
+        {{
+            "score": 75,
+            "status": "fair",
+            "recommendations": [
+                "Recommendation 1",
+                "Recommendation 2",
+                "Recommendation 3"
+            ]
+        }}
+        """
+
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": "You are a helpful agricultural AI. Output valid JSON only."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            max_tokens=300,
+            response_format={"type": "json_object"}
+        )
+
+        response_content = completion.choices[0].message.content
+        result = json.loads(response_content)
+        
+        return jsonify(result)
+
+    except Exception as e:
+        print(f"Health Analysis Error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+>>>>>>> 44612f63f18f414989e95cad041efb4d88c4764e
 if __name__ == '__main__':
     print("\n" + "="*50)
     print("AgriSphere AI API Server Starting...")

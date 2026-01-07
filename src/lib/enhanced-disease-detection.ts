@@ -213,7 +213,7 @@ export class EnhancedDiseaseDetector {
     if (name.includes('stem')) return 'stem';
     if (name.includes('fruit')) return 'fruit';
     if (name.includes('soil')) return 'soil';
-    
+
     // Default to leaf for plant disease detection as most samples are leaf-based
     return 'leaf';
   }
@@ -486,14 +486,14 @@ export class EnhancedDiseaseDetector {
 
     // Check if the plant is healthy with high confidence
     const isHealthy = diseases.length === 1 && diseases[0].disease === 'healthy' && diseases[0].confidence > 0.9;
-    
+
     if (isHealthy) {
       // For healthy plants with high confidence, give a high score regardless of other factors
       score = Math.min(100, 95 + Math.floor(diseases[0].confidence * 5));
       recommendations.push('Plant is healthy - continue current practices');
     } else {
       // For diseased plants or low confidence healthy classification, calculate normally
-      
+
       diseases.forEach(disease => {
         // Don't deduct points for healthy plants
         if (disease.disease !== 'healthy') {
@@ -530,9 +530,9 @@ export class EnhancedDiseaseDetector {
     }
 
     let status: 'critical' | 'poor' | 'fair' | 'good' | 'excellent' = score >= 95 ? 'excellent' :
-                  score >= 85 ? 'good' :
-                  score >= 70 ? 'fair' :
-                  score >= 50 ? 'poor' : 'critical';
+      score >= 85 ? 'good' :
+        score >= 70 ? 'fair' :
+          score >= 50 ? 'poor' : 'critical';
 
     // Special case for high confidence healthy plants
     if (isHealthy) {
@@ -542,7 +542,7 @@ export class EnhancedDiseaseDetector {
       // Check if all recommendations are positive (for healthy plants)
       const hasNegativeRecommendations = recommendations.some(rec => rec.startsWith('Address') || rec.startsWith('Implement') || rec.startsWith('Correct'));
       const hasMonitoringRecommendations = recommendations.some(rec => rec.startsWith('Monitor for'));
-      
+
       if (!hasNegativeRecommendations && !hasMonitoringRecommendations) {
         // All recommendations are positive, so plant is healthy
         recommendations.splice(0, recommendations.length, 'Plant health is excellent - maintain current practices');

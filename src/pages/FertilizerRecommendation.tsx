@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Droplets, Sprout, CloudRain, Calculator, Leaf, Thermometer, Wind } from "lucide-react";
+import { ArrowLeft, Droplets, Sprout, CloudRain, Calculator, Leaf, Thermometer, Wind, Volume2, Mic, StopCircle } from "lucide-react";
+import { simplifyTextForFarmer, speakText } from "@/services/voiceService";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -16,6 +17,9 @@ const FertilizerRecommendation = () => {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
+  const [explanation, setExplanation] = useState<string>("");
+  const [isExplaining, setIsExplaining] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
 
   const [formData, setFormData] = useState({
     crop: "rice",
@@ -67,6 +71,50 @@ const FertilizerRecommendation = () => {
     }
   };
 
+  const handleExplain = async (lang: "Hindi" | "English") => {
+    if (!result) return;
+
+    // Stop if already speaking
+    if (isSpeaking) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+      return;
+    }
+
+    setIsExplaining(true);
+    setExplanation(""); // Clear previous
+
+    try {
+      // Construct a data summary for the AI
+      const dataSummary = `
+        Crop: ${formData.crop}.
+        Fertilizer Recommended: Nitrogen ${result.fertilizer.nitrogen}, Phosphorus ${result.fertilizer.phosphorus}, Potassium ${result.fertilizer.potassium}.
+        Adjustments: ${result.fertilizer.adjustments?.join(", ") || "None"}.
+        Soil Health: ${result.soil_health.recommendation}.
+        Irrigation: ${result.irrigation.status}, Amount: ${result.irrigation.water_amount}.
+      `;
+
+      const text = await simplifyTextForFarmer(dataSummary, lang);
+      setExplanation(text);
+
+      setIsSpeaking(true);
+      speakText(text, lang === "Hindi" ? "hi-IN" : "en-US");
+
+      // Monitor speech end (simple timeout approximation or event listener could be better, but this is simple)
+      const words = text.split(" ").length;
+      setTimeout(() => setIsSpeaking(false), words * 600); // Approx duration
+
+    } catch (error) {
+      toast({
+        title: "Voice Error",
+        description: "Could not generate voice explanation.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsExplaining(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background relative overflow-hidden">
       {/* Background Elements */}
@@ -92,7 +140,7 @@ const FertilizerRecommendation = () => {
           <p className="text-muted-foreground text-lg">AI-powered recommendations for optimal crop nutrition and water management</p>
         </motion.div>
 
-        <div className="grid lg:grid-cols-2 gap-8">
+        <div className="grid lg:grid-cols-2 gap-8 items-start">
           {/* Input Form */}
           <motion.div
             initial={{ opacity: 0, x: -20 }}
@@ -263,6 +311,60 @@ const FertilizerRecommendation = () => {
             transition={{ delay: 0.4 }}
             className="space-y-6"
           >
+            {result && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-gradient-to-r from-indigo-500/10 to-purple-500/10 border border-indigo-500/20 rounded-xl p-4 backdrop-blur-md"
+              >
+                <div className="flex flex-col gap-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="p-2 bg-indigo-500/20 rounded-full text-indigo-400">
+                        <Mic className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-indigo-300">AI Agro-Advisor</h3>
+                        <p className="text-xs text-muted-foreground">Hear this plan in your language</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant={isSpeaking ? "destructive" : "outline"}
+                        className={isSpeaking ? "" : "border-indigo-500/30 hover:bg-indigo-500/10"}
+                        onClick={() => handleExplain("Hindi")}
+                        disabled={isExplaining}
+                      >
+                        {isExplaining ? (
+                          <span className="animate-spin mr-2">⏳</span>
+                        ) : isSpeaking ? (
+                          <StopCircle className="h-4 w-4 mr-1" />
+                        ) : (
+                          <Volume2 className="h-4 w-4 mr-1" />
+                        )}
+                        {isSpeaking ? "Stop" : "Hindi"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="border-indigo-500/30 hover:bg-indigo-500/10"
+                        onClick={() => handleExplain("English")}
+                        disabled={isExplaining || isSpeaking}
+                      >
+                        English
+                      </Button>
+                    </div>
+                  </div>
+
+                  {explanation && (
+                    <div className="p-3 bg-background/40 rounded-lg text-sm leading-relaxed border border-white/5 animate-in fade-in slide-in-from-top-2">
+                      <p>"{explanation}"</p>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
             {!result ? (
               <Card className="h-full flex flex-col items-center justify-center p-12 text-center text-muted-foreground border-dashed border-2 bg-transparent">
                 <div className="w-24 h-24 rounded-full bg-muted flex items-center justify-center mb-6">
@@ -273,11 +375,6 @@ const FertilizerRecommendation = () => {
               </Card>
             ) : (
               <>
-                <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
-                  <span>Source: <strong>{result.source}</strong></span>
-                  <span>{new Date().toLocaleDateString()}</span>
-                </div>
-
                 {/* Fertilizer Card */}
                 <Card className="overflow-hidden border-green-500/30 bg-card/40 backdrop-blur-md">
                   <div className="p-4 bg-green-500/10 border-b border-green-500/20 flex items-center justify-between">
@@ -383,6 +480,11 @@ const FertilizerRecommendation = () => {
                       <div className="font-semibold">Normal</div>
                     </div>
                   </Card>
+                </div>
+
+                <div className="flex items-center justify-between text-xs text-muted-foreground px-1 mt-4">
+                  <span>Source: <strong>{result.source}</strong></span>
+                  <span>{new Date().toLocaleDateString()}</span>
                 </div>
               </>
             )}

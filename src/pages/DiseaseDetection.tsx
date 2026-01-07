@@ -6,6 +6,7 @@ import EnhancedImageAnalysis from "@/components/EnhancedImageAnalysis";
 import ImageAnalysis from "@/components/ImageAnalysis";
 import { EnhancedDiseaseDetector } from "@/lib/enhanced-disease-detection";
 import { useState, useEffect, useRef } from "react";
+import { useTranslation } from 'react-i18next';
 
 const DiseaseDetection = () => {
   const [detector] = useState(() => new EnhancedDiseaseDetector());
@@ -97,7 +98,7 @@ const DiseaseDetection = () => {
               AI Multi-Class Disease Detection
             </h1>
             <p className="text-xl text-muted-foreground max-w-3xl mx-auto mb-8">
-              Revolutionary multi-class AI system detecting diseases, pests, nutrient deficiencies, and soil texture 
+              Revolutionary multi-class AI system detecting diseases, pests, nutrient deficiencies, and soil texture
               from leaf, stem, fruit, and soil images with 95%+ accuracy using ensemble CNN models.
             </p>
             <div className="flex flex-wrap gap-4 justify-center">

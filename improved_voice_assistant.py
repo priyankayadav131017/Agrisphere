@@ -150,13 +150,13 @@ class AgriVoiceAssistant:
         
         # 1. Direct Crop + Intent Check (Local Fast Path)
         # This bypasses generic checks to ensure we answer common crop questions locally
-        local_response = self.check_local_knowledge(text, is_hindi)
-        if local_response:
-            return local_response
+        # local_response = self.check_local_knowledge(text, is_hindi)
+        # if local_response:
+        #     return local_response
 
         # 2. General Fallback to simple keyword routing (Legacy)
-        if any(word in text for word in ['kharif', 'rabi', 'खरीफ', 'रबी']):
-            return self.handle_crop_info_query(text, is_hindi)
+        # if any(word in text for word in ['kharif', 'rabi', 'खरीफ', 'रबी']):
+        #     return self.handle_crop_info_query(text, is_hindi)
             
         # 3. If no local match, try Groq AI
         return self.call_groq_api(text, is_hindi)
@@ -250,7 +250,7 @@ class AgriVoiceAssistant:
         try:
              # Construct the prompt
             system_instruction = """You are AgriSphere AI, an expert agricultural assistant for Indian farmers. 
-            You provide accurate, practical farming advice.
+            You provide accurate, practical farming advice strictly following ICAR (Indian Council of Agricultural Research) and FAO protocols.
             
             Analyze the following user query and provide a JSON response.
             The user might ask in English or Hindi. You MUST reply in the SAME language as the query (English or Hindi).

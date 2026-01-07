@@ -5,7 +5,7 @@ const YOUTUBE_API_KEY = import.meta.env.VITE_YOUTUBE_API_KEY;
 const BASE_URL = "https://www.googleapis.com/youtube/v3/search";
 
 // Array of farming related queries to rotate through for variety
-const FARMING_QUERIES = [
+const FARMING_QUERIES_EN = [
     "Indian farming techniques organic kisan",
     "Smart agriculture India technology guide",
     "Successful organic farming stories India",
@@ -16,24 +16,43 @@ const FARMING_QUERIES = [
     "Sustainable agriculture methods India"
 ];
 
+const FARMING_QUERIES_HI = [
+    "आधुनिक खेती के तरीके",
+    "जैविक खेती कैसे करें",
+    "भारतीय किसान सफलता की कहानियां",
+    "डेयरी फार्मिंग की जानकारी",
+    "सब्जी की खेती से मुनाफा",
+    "कृषि यंत्र की जानकारी",
+    "टपक सिंचाई प्रणाली",
+    "मशरूम की खेती"
+];
+
 // Returns tuple of [videos, nextPageToken]
-export const fetchFarmingVideos = async (pageToken?: string): Promise<{ videos: Video[], nextPageToken?: string }> => {
+export const fetchFarmingVideos = async (language: string, pageToken?: string, searchQuery?: string): Promise<{ videos: Video[], nextPageToken?: string }> => {
     if (!YOUTUBE_API_KEY) {
         console.error("YouTube API Key is missing!");
         return { videos: [] };
     }
 
     try {
-        // Pick a random query to ensure fresh content on reload
-        const randomQuery = FARMING_QUERIES[Math.floor(Math.random() * FARMING_QUERIES.length)];
+        let q = searchQuery;
+        if (!q) {
+            const queryList = language === 'Hindi' ? FARMING_QUERIES_HI : FARMING_QUERIES_EN;
+            // Pick a random query to ensure fresh content on reload
+            q = queryList[Math.floor(Math.random() * queryList.length)];
+        }
+
+        console.log(`Fetching YouTube videos for language: ${language}, query: ${q}`);
 
         const response = await axios.get(BASE_URL, {
             params: {
                 part: "snippet",
-                q: randomQuery,
+                q: q,
                 type: "video",
+                videoDuration: "medium", // Filter out Shorts (which are < 1 min)
                 maxResults: 6,
                 regionCode: "IN",
+                relevanceLanguage: language === 'Hindi' ? 'hi' : 'en',
                 key: YOUTUBE_API_KEY,
                 pageToken: pageToken
             },

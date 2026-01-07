@@ -1,9 +1,13 @@
 import { motion } from "framer-motion";
-import { Map, Layers, Droplets, Bug, TrendingUp, ArrowLeft, MapPin, Activity, CheckCircle2 } from "lucide-react";
+import { Map, Layers, Droplets, Bug, TrendingUp, ArrowLeft, MapPin, Activity, CheckCircle2, Volume2, Play, Pause, Square } from "lucide-react";
+import { translateToHindi } from "@/lib/voice-translation";
+import { toast } from "sonner";
+import { INDIAN_LOCATIONS } from "@/lib/location-data";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -28,13 +32,19 @@ const DigitalTwin = () => {
   const [isInitializing, setIsInitializing] = useState(false);
   const [hasInitialized, setHasInitialized] = useState(false);
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [speechState, setSpeechState] = useState<'idle' | 'speaking' | 'paused'>('idle');
+  const [voiceLanguage, setVoiceLanguage] = useState<'en' | 'hi'>('hi'); // Default to Hindi as per request context or user preference if needed, but 'en' safe default. Let's use 'en' as default or 'hi' if we want to show off. User asked for both. Let's stick to 'en' default but toggleable. Actually I'll set 'en' default.
+
 
   // Form State
   const [formData, setFormData] = useState({
     farmName: "My Digital Farm",
     ownerName: "AgriSphere User",
-    latitude: "26.1440",
-    longitude: "91.7360",
+    latitude: "",
+    longitude: "",
+    state: "",
+    district: "",
+    town: "",
     size: "10" // Acres
   });
 
@@ -45,6 +55,7 @@ const DigitalTwin = () => {
 
   const useCurrentLocation = () => {
     if (navigator.geolocation) {
+      toast.info("Getting GPS location...");
       navigator.geolocation.getCurrentPosition(
         (position) => {
           setFormData(prev => ({
@@ -52,6 +63,7 @@ const DigitalTwin = () => {
             latitude: position.coords.latitude.toFixed(6),
             longitude: position.coords.longitude.toFixed(6)
           }));
+          toast.success("Location found via GPS");
         },
         (error) => {
           console.error("Error getting location", error);
@@ -93,22 +105,116 @@ const DigitalTwin = () => {
     console.log('⏳ Initializing farm data...', formData);
 
     try {
-      const lat = parseFloat(formData.latitude);
-      const lng = parseFloat(formData.longitude);
+      let lat = parseFloat(formData.latitude);
+      let lng = parseFloat(formData.longitude);
       const acres = parseFloat(formData.size);
 
-      if (isNaN(lat) || isNaN(lng) || isNaN(acres)) {
-        throw new Error("Invalid input data");
+      // If coordinates are missing but text location exists, proceeding to AI first
+      const isLocationSearch = (isNaN(lat) || isNaN(lng)) && formData.state && formData.district;
+
+      if (!isLocationSearch && (isNaN(lat) || isNaN(lng))) {
+        // If neither Coords nor valid Text provided
+        alert("Please provide either GPS Coordinates OR State/District details.");
+        setIsInitializing(false);
+        return;
+      }
+
+      toast.info(isLocationSearch ? `Locating ${formData.town}, ${formData.district}...` : "Generating Digital Twin...");
+
+      // 2. Fetch AI Intelligence (Attributes) + Estimates Coordinates if needed
+      let aiData = null;
+      try {
+        const response = await fetch('http://localhost:5000/generate-digital-twin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            farmName: formData.farmName,
+            ownerName: formData.ownerName,
+            latitude: formData.latitude || "0",
+            longitude: formData.longitude || "0",
+            state: formData.state,
+            district: formData.district,
+            town: formData.town,
+            size: acres
+          })
+        });
+
+        if (response.ok) {
+          aiData = await response.json();
+          console.log("🧠 Groq AI Data:", aiData);
+
+          // IF we were doing search, USE the AI's estimated coordinates
+          if (isLocationSearch && aiData.location) {
+            lat = aiData.location.lat;
+            lng = aiData.location.lng;
+
+            // Update form data for display
+            setFormData(prev => ({
+              ...prev,
+              latitude: lat.toString(),
+              longitude: lng.toString()
+            }));
+
+            toast.success(`Location identified: Lat ${lat}, Lng ${lng}`);
+          }
+
+          toast.success(`AI Analysis Complete: ${aiData.visual_summary || "Localized data applied."}`);
+
+        } else {
+          console.warn("AI Generation failed");
+          toast.error("AI Analysis Failed.");
+        }
+      } catch (err) {
+        console.error("Failed to fetch AI data", err);
+        toast.error("Network Error using AI.");
+      }
+
+      // Check if we have valid coordinates now (either from input or AI)
+      if (isNaN(lat) || isNaN(lng)) {
+        throw new Error("Could not determine farm location coordinates.");
       }
 
       const coordinates = generateFarmCoordinates(lat, lng, acres);
-      console.log('📍 Generated coordinates:', coordinates);
+      console.log('📍 Generated coordinates for acres:', acres, coordinates);
 
-      // Initialize both traditional and GIS digital twins
-      const [traditionalData, gisData] = await Promise.all([
+      // 1. Initialize Geometry locally (using Turf.js)
+      let [traditionalData, gisData] = await Promise.all([
         twinEngine.initializeFarm(coordinates.map(c => [c.lng, c.lat])),
         gisEngine.initializeFarm(formData.farmName, formData.ownerName, coordinates)
       ]);
+
+      // MERGE AI Data if available
+      if (aiData) {
+        // Update Farm Area strictly from AI or usage
+        traditionalData.farmBoundary.area = aiData.farmBoundary.area;
+
+        // Merge Soil Zones (Keep geometry, update attributes)
+        traditionalData.soilZones = traditionalData.soilZones.map((zone, idx) => {
+          const aiZone = aiData.soilZones[idx % aiData.soilZones.length];
+          return { ...zone, ...aiZone, id: zone.id, coordinates: zone.coordinates };
+        });
+
+        // Merge Irrigation
+        traditionalData.irrigationZones = traditionalData.irrigationZones.map((zone, idx) => {
+          const aiZone = aiData.irrigationZones[idx % aiData.irrigationZones.length];
+          return { ...zone, ...aiZone, id: zone.id, coordinates: zone.coordinates };
+        });
+
+        // Merge Pest Areas (If AI has fewer, loop them; if AI has more, we limit to geometry count)
+        traditionalData.pestProneAreas = traditionalData.pestProneAreas.map((area, idx) => {
+          const aiPest = aiData.pestProneAreas[idx % aiData.pestProneAreas.length];
+          return { ...area, ...aiPest, id: area.id, coordinates: area.coordinates };
+        });
+
+        // Merge Crops
+        traditionalData.cropGrowthStages = traditionalData.cropGrowthStages.map((stage, idx) => {
+          const aiCrop = aiData.cropGrowthStages[idx % aiData.cropGrowthStages.length];
+          return { ...stage, ...aiCrop, id: stage.id, coordinates: stage.coordinates };
+        });
+
+        // Update Weather
+        if (aiData.weatherData) traditionalData.weatherData = aiData.weatherData;
+      }
 
       console.log('✅ Farm data initialized:', { traditionalData, gisData });
 
@@ -125,7 +231,7 @@ const DigitalTwin = () => {
 
     } catch (error) {
       console.error('❌ Failed to initialize farm:', error);
-      alert("Failed to create Digital Twin. Please check your inputs.");
+      alert("Failed to create Digital Twin. Please check location inputs.");
     } finally {
       setIsInitializing(false);
     }
@@ -271,6 +377,73 @@ const DigitalTwin = () => {
                         placeholder="e.g. John Doe"
                       />
                     </div>
+
+
+
+                    {/* Location Selection with Dropdowns */}
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="grid gap-2">
+                        <Label htmlFor="state">State</Label>
+                        <Select
+                          value={formData.state}
+                          onValueChange={(value) => {
+                            setFormData(prev => ({
+                              ...prev,
+                              state: value,
+                              district: ""
+                            }));
+                          }}
+                        >
+                          <SelectTrigger id="state" className="h-10 w-full">
+                            <SelectValue placeholder="Select State" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-[200px] overflow-y-auto z-[100]">
+                            {Object.keys(INDIAN_LOCATIONS).sort().map(state => (
+                              <SelectItem key={state} value={state}>{state}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="grid gap-2">
+                        <Label htmlFor="district">District</Label>
+                        <Select
+                          value={formData.district}
+                          onValueChange={(value) => setFormData(prev => ({ ...prev, district: value }))}
+                          disabled={!formData.state}
+                        >
+                          <SelectTrigger id="district" className="h-10 w-full">
+                            <SelectValue placeholder="District" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-[200px] overflow-y-auto z-[100]">
+                            {formData.state && INDIAN_LOCATIONS[formData.state]?.sort().map(district => (
+                              <SelectItem key={district} value={district}>{district}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="grid gap-2">
+                        <Label htmlFor="town">Village/Town</Label>
+                        <Input
+                          id="town"
+                          name="town"
+                          value={formData.town}
+                          onChange={handleInputChange}
+                          placeholder="e.g. Domjur"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="relative">
+                      <div className="absolute inset-0 flex items-center">
+                        <span className="w-full border-t" />
+                      </div>
+                      <div className="relative flex justify-center text-xs uppercase">
+                        <span className="bg-background px-2 text-muted-foreground">Or Use Coordinates</span>
+                      </div>
+                    </div>
+
                     <div className="grid grid-cols-2 gap-4">
                       <div className="grid gap-2">
                         <Label htmlFor="latitude">Latitude</Label>
@@ -327,7 +500,10 @@ const DigitalTwin = () => {
                     ownerName: "Demo User",
                     latitude: "26.1440",
                     longitude: "91.7360",
-                    size: "15"
+                    size: "15",
+                    state: "",
+                    district: "",
+                    town: ""
                   });
                   setTimeout(initializeFarm, 100);
                 }}
@@ -450,7 +626,82 @@ const DigitalTwin = () => {
       {farmData && (
         <section className="py-20 px-4 bg-gradient-to-br from-green-50 to-blue-50 dark:from-green-950/20 dark:to-blue-950/20">
           <div className="container mx-auto">
-            <h2 className="text-4xl font-bold text-center mb-16">Live Digital Twin Data</h2>
+            <div className="flex flex-col md:flex-row justify-center items-center gap-4 mb-16 relative">
+              <h2 className="text-4xl font-bold text-center">Live Digital Twin Data</h2>
+
+              {/* Voice Controls */}
+              <div className="flex items-center gap-2 bg-white/80 dark:bg-black/80 backdrop-blur px-4 py-2 rounded-full shadow-sm border border-border/50">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 w-8 p-0 rounded-full"
+                  onClick={() => setVoiceLanguage(prev => prev === 'en' ? 'hi' : 'en')}
+                >
+                  <span className="text-xs font-bold">{voiceLanguage === 'en' ? 'EN' : 'HI'}</span>
+                </Button>
+                <div className="h-4 w-px bg-border mx-1" />
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 w-8 p-0 rounded-full hover:bg-primary/10 text-primary"
+                  onClick={() => {
+                    if (speechState === 'speaking') {
+                      window.speechSynthesis.pause();
+                      setSpeechState('paused');
+                    } else if (speechState === 'paused') {
+                      window.speechSynthesis.resume();
+                      setSpeechState('speaking');
+                    } else {
+                      // Generate Text
+                      let text = `Your farm area is ${farmData.farmBoundary.area.toFixed(2)} hectares, mapped into ${farmData.soilZones.length} soil zones. `;
+                      text += `There are ${farmData.irrigationZones.length} active irrigation zones. `;
+                      text += `Average crop health is ${Math.round(farmData.cropGrowthStages.reduce((sum: number, stage: any) => sum + stage.health, 0) / farmData.cropGrowthStages.length)}%. `;
+
+                      // Pests
+                      const highRisk = farmData.pestProneAreas.filter((p: any) => p.riskLevel === 'high');
+                      if (highRisk.length > 0) {
+                        text += `High pest risk detected for ${highRisk.map((p: any) => p.pestType).join(' and ')}. `;
+                      } else {
+                        text += "No high pest risks detected. ";
+                      }
+
+                      // Crops
+                      farmData.cropGrowthStages.forEach((stage: any) => {
+                        text += `${stage.cropType} is in ${stage.stage} stage. `;
+                      });
+
+                      if (voiceLanguage === 'hi') {
+                        text = translateToHindi(text);
+                      }
+
+                      const speech = new SpeechSynthesisUtterance(text);
+                      speech.lang = voiceLanguage === 'hi' ? 'hi-IN' : 'en-US';
+                      speech.rate = 0.9;
+                      speech.onend = () => setSpeechState('idle');
+                      window.speechSynthesis.cancel();
+                      window.speechSynthesis.speak(speech);
+                      setSpeechState('speaking');
+                    }
+                  }}
+                >
+                  {speechState === 'speaking' ? <Pause className="w-4 h-4" /> : speechState === 'paused' ? <Play className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                </Button>
+                {speechState !== 'idle' && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 w-8 p-0 rounded-full text-destructive hover:bg-destructive/10"
+                    onClick={() => {
+                      window.speechSynthesis.cancel();
+                      setSpeechState('idle');
+                    }}
+                  >
+                    <Square className="w-4 h-4 fill-current" />
+                  </Button>
+                )}
+              </div>
+            </div>
+
             <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto mb-12">
               <Card className="p-6 text-center">
                 <MapPin className="w-8 h-8 mx-auto mb-3 text-green-500" />

@@ -106,10 +106,12 @@ export const translateToHindi = async (text: string) => {
 const getAnalysisPrompt = (type: string) => {
   switch (type) {
     case 'disease':
-      return `Analyze this crop image for diseases, pests, and health issues. Provide:
+      return `Analyze this crop image for diseases, pests, and health issues. 
+Use ICAR (Indian Council of Agricultural Research) and FAO standards for diagnosis.
+Provide:
 1. Disease/pest identification
 2. Severity level (1-10)
-3. Treatment recommendations (chemical and organic)
+3. Treatment recommendations (chemical and organic, ICAR approved)
 4. Prevention tips
 Format output clearly.`;
 
@@ -135,6 +137,7 @@ Format output clearly.`;
 const getSystemPrompt = (context: string) => {
   const basePrompt = `You are AgriSphere AI, an expert agricultural assistant for India. 
 Powered by Llama 3 via Groq.
+Reflect the guidelines and best practices of ICAR (Indian Council of Agricultural Research) and FAO (Food and Agriculture Organization).
 Provide practical, actionable advice in simple language suitable for farmers.
 Include costs in Indian Rupees (₹) when relevant.
 Always be polite and helpful.

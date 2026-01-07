@@ -5,9 +5,8 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Loader2, Sprout, Newspaper, PlaySquare, RefreshCw } from "lucide-react";
+import { Loader2, Sprout, Newspaper, PlaySquare, RefreshCw, Search, Mic } from "lucide-react";
 import { toast } from "sonner";
-
 // Services & Data
 import { ALL_SCHEMES } from "@/services/schemesData";
 import { getEligibleSchemes } from "@/services/schemeEngine";
@@ -22,6 +21,9 @@ import { VideoCard } from "@/components/Advisory/VideoCard";
 
 const AdvisoryHub = () => {
     // State
+    const [language, setLanguage] = useState<"Hindi" | "English">("English");
+
+    // State
     const [activeTab, setActiveTab] = useState("schemes");
     const [schemes, setSchemes] = useState<Scheme[]>([]);
     const [news, setNews] = useState<NewsArticle[]>([]);
@@ -31,8 +33,63 @@ const AdvisoryHub = () => {
     const [newsPage, setNewsPage] = useState(1);
     const [videoNextToken, setVideoNextToken] = useState<string | undefined>(undefined);
 
-    // Language State
-    const [language, setLanguage] = useState<"Hindi" | "English">("English");
+    // Pagination & Load More
+    const [visibleCount, setVisibleCount] = useState(9); // Start with 9 items
+    const [visibleNewsCount, setVisibleNewsCount] = useState(9); // News starts with 9
+
+    // Search State
+    const [searchQuery, setSearchQuery] = useState("");
+    const [isListening, setIsListening] = useState(false);
+
+    // ... (rest of simple states)
+
+    // ... (rest of effects)
+
+    const handleLoadMoreSchemes = async () => {
+        // If we have hidden schemes already loaded, just show them
+        if (visibleCount < schemes.length) {
+            setVisibleCount(prev => prev + 9);
+            return;
+        }
+
+        // Otherwise, fetch NEW schemes from AI
+        setLoadingAiSchemes(true);
+        toast.info("Asking AI for more schemes...");
+        try {
+            const { fetchLatestSchemes } = await import("../services/aiSchemeService");
+            const newSchemes = await fetchLatestSchemes(language);
+
+            // Filter duplicates based on ID or Name
+            const currentIds = new Set(schemes.map(s => s.id));
+            const uniqueNew = newSchemes.filter(s => !currentIds.has(s.id));
+
+            if (uniqueNew.length > 0) {
+                setAiSchemes(prev => [...prev, ...uniqueNew]);
+                // visibleCount will effectively increase because schemes length increases, 
+                // but we might want to forcefully show the new ones.
+                // Since useEffect updates 'schemes', and we render slice(0, visibleCount),
+                // we should increase visibleCount to accommodate the new items.
+                setVisibleCount(prev => prev + uniqueNew.length);
+                toast.success(`Added ${uniqueNew.length} new schemes.`);
+            } else {
+                toast.info("AI couldn't find any new unique schemes right now.");
+            }
+        } catch (error) {
+            console.error(error);
+            toast.error("Failed to load more schemes.");
+        } finally {
+            setLoadingAiSchemes(false);
+        }
+    };
+
+    // ... (handleRefresh etc)
+
+    // In Render:
+
+
+    // ...
+
+    // Language State removed (mapped from i18n above)
 
     // Farmer Profile State
     const [profile, setProfile] = useState<FarmerProfile>({
@@ -81,7 +138,7 @@ const AdvisoryHub = () => {
         }
         if (activeTab === "videos" && videos.length === 0) {
             setLoadingVideos(true);
-            fetchFarmingVideos().then(({ videos, nextPageToken }) => {
+            fetchFarmingVideos(language).then(({ videos, nextPageToken }) => {
                 setVideos(videos);
                 setVideoNextToken(nextPageToken);
             }).finally(() => setLoadingVideos(false));
@@ -118,7 +175,7 @@ const AdvisoryHub = () => {
     const handleLoadMoreVideos = async () => {
         if (!videoNextToken) return;
         setLoadingVideos(true);
-        const { videos: newVideos, nextPageToken } = await fetchFarmingVideos(videoNextToken);
+        const { videos: newVideos, nextPageToken } = await fetchFarmingVideos(language, videoNextToken);
         setVideos(prev => [...prev, ...newVideos]);
         setVideoNextToken(nextPageToken);
         setLoadingVideos(false);
@@ -129,10 +186,16 @@ const AdvisoryHub = () => {
             setVideos([]);
             setVideoNextToken(undefined);
             setLoadingVideos(true);
-            fetchFarmingVideos().then(({ videos, nextPageToken }) => {
+            // If search query exists, refresh that search, else random
+            const query = searchQuery || undefined;
+            // Clear search query if refreshing to get random? No, keep context if typed.
+            // Actually, if user hits refresh button, maybe they want random new content?
+            // Let's keep search query if present.
+            fetchFarmingVideos(language, undefined, query).then(({ videos, nextPageToken }) => {
                 setVideos(videos);
                 setVideoNextToken(nextPageToken);
             }).finally(() => setLoadingVideos(false));
+            toast.success("Videos refreshed!");
         } else if (activeTab === "news") {
             setNews([]);
             setNewsPage(1);
@@ -147,6 +210,61 @@ const AdvisoryHub = () => {
             const eligible = getEligibleSchemes(profile, ALL_SCHEMES);
             setSchemes([...eligible, ...aiSchemes]);
             toast.success("Schemes refreshed!");
+        }
+    };
+
+    const handleSearch = () => {
+        if (!searchQuery.trim()) return;
+        setActiveTab("videos");
+        setVideos([]);
+        setVideoNextToken(undefined);
+        setLoadingVideos(true);
+        fetchFarmingVideos(language, undefined, searchQuery).then(({ videos, nextPageToken }) => {
+            setVideos(videos);
+            setVideoNextToken(nextPageToken);
+        }).finally(() => setLoadingVideos(false));
+    };
+
+    const handleVoiceSearch = () => {
+        if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+            const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+            const recognition = new SpeechRecognition();
+            recognition.lang = language === 'Hindi' ? 'hi-IN' : 'en-IN';
+            recognition.continuous = false;
+            recognition.interimResults = false;
+
+            recognition.onstart = () => {
+                setIsListening(true);
+                toast.info("Listening...");
+            };
+
+            recognition.onresult = (event: any) => {
+                const transcript = event.results[0][0].transcript;
+                setSearchQuery(transcript);
+                handleSearch(); // Auto-search on voice result
+            };
+
+            recognition.onerror = (event: any) => {
+                console.error("Speech recognition error", event.error);
+                setIsListening(false);
+                toast.error("Voice input failed. Please try again.");
+            };
+
+            recognition.onend = () => {
+                setIsListening(false);
+                // Trigger search explicitly if needed, but onresult handles it
+                if (searchQuery) handleSearch();
+            };
+
+            recognition.start();
+        } else {
+            toast.error("Voice search not supported in this browser.");
+        }
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter') {
+            handleSearch();
         }
     };
 
@@ -184,7 +302,7 @@ const AdvisoryHub = () => {
             </div>
 
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-6">
-                <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center justify-between mb-4 flex-wrap gap-4">
                     <TabsList className="grid w-full grid-cols-3 lg:w-[400px] bg-green-50">
                         <TabsTrigger value="schemes" className="data-[state=active]:bg-green-600 data-[state=active]:text-white">
                             🏛️ Schemes
@@ -196,15 +314,47 @@ const AdvisoryHub = () => {
                             🎥 Videos
                         </TabsTrigger>
                     </TabsList>
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={handleRefresh}
-                        className="text-gray-500 hover:text-green-700 hover:bg-green-50"
-                        title="Refresh Content"
-                    >
-                        <RefreshCw className="h-5 w-5" />
-                    </Button>
+
+                    <div className="flex items-center gap-2">
+                        {activeTab === "videos" && (
+                            <div className="flex items-center gap-2 bg-green-100 border border-black rounded-full px-4 py-1.5 shadow-sm hover:shadow-md transition-all">
+                                <Input
+                                    placeholder={language === 'Hindi' ? "खोजें (Search)..." : "Search videos..."}
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    onKeyDown={handleKeyDown}
+                                    className="border-none shadow-none focus-visible:ring-0 h-8 w-[200px] md:w-[350px] bg-transparent text-green-900 placeholder:text-green-700/60"
+                                />
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className={`h-8 w-8 ${isListening ? 'text-red-600 animate-pulse' : 'text-green-700 hover:text-black hover:bg-green-300/50 transition-colors'}`}
+                                    onClick={handleVoiceSearch}
+                                >
+                                    <Mic className="h-5 w-5" />
+                                </Button>
+                                <div className="h-5 w-[1.5px] bg-green-400 mx-1"></div>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 text-green-700 hover:text-black hover:bg-green-300/50 transition-colors"
+                                    onClick={handleSearch}
+                                >
+                                    <Search className="h-5 w-5" />
+                                </Button>
+                            </div>
+                        )}
+
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={handleRefresh}
+                            className="text-gray-500 hover:text-green-700 hover:bg-green-50"
+                            title="Refresh Content"
+                        >
+                            <RefreshCw className="h-5 w-5" />
+                        </Button>
+                    </div>
                 </div>
 
                 {/* --- SCHEMES TAB --- */}
@@ -262,10 +412,10 @@ const AdvisoryHub = () => {
                     )}
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {schemes.map(scheme => (
-                            <SchemeCard key={scheme.id} scheme={scheme} language={language} />
+                        {schemes.slice(0, visibleCount).map((scheme, index) => (
+                            <SchemeCard key={`${scheme.id}-${index}`} scheme={scheme} language={language} />
                         ))}
-                        {schemes.length === 0 && (
+                        {schemes.length === 0 && !loadingAiSchemes && (
                             <div className="col-span-full text-center py-10 text-gray-500">
                                 <p>No eligible schemes found for this profile in {profile.state}.</p>
                                 <Button variant="link" onClick={() => setProfile(prev => ({ ...prev, state: "All" }))}>
@@ -273,6 +423,27 @@ const AdvisoryHub = () => {
                                 </Button>
                             </div>
                         )}
+                    </div>
+
+                    {/* Load More Button */}
+                    <div className="flex justify-center mt-6 pb-8">
+                        <Button
+                            variant="outline"
+                            onClick={handleLoadMoreSchemes}
+                            disabled={loadingAiSchemes}
+                            className="min-w-[200px]"
+                        >
+                            {loadingAiSchemes ? (
+                                <>
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    Finding New Schemes...
+                                </>
+                            ) : (
+                                <>
+                                    {visibleCount < schemes.length ? "Load More" : "Find More from AI"}
+                                </>
+                            )}
+                        </Button>
                     </div>
                 </TabsContent>
 
@@ -343,7 +514,7 @@ const AdvisoryHub = () => {
                 </TabsContent>
 
             </Tabs>
-        </div>
+        </div >
     );
 };
 

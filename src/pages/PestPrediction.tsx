@@ -1,5 +1,6 @@
 
 import React, { useState } from 'react';
+import { motion } from "framer-motion";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -7,7 +8,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Leaf, Droplets, CloudRain, Thermometer } from "lucide-react";
+import { Leaf, Droplets, CloudRain, Thermometer, Volume2, Mic, StopCircle } from "lucide-react";
+import { simplifyTextForFarmer, speakText } from "@/services/voiceService";
 import axios from 'axios';
 
 const PestPrediction = () => {
@@ -17,6 +19,9 @@ const PestPrediction = () => {
     const [rainfall, setRainfall] = useState(50);
     const [loading, setLoading] = useState(false);
     const [result, setResult] = useState<any>(null);
+    const [explanation, setExplanation] = useState<string>("");
+    const [isExplaining, setIsExplaining] = useState(false);
+    const [isSpeaking, setIsSpeaking] = useState(false);
 
     const handlePredict = async () => {
         setLoading(true);
@@ -32,6 +37,45 @@ const PestPrediction = () => {
             console.error("Prediction failed:", error);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleExplain = async (lang: "Hindi" | "English") => {
+        if (!result) return;
+
+        // Stop if already speaking
+        if (isSpeaking) {
+            window.speechSynthesis.cancel();
+            setIsSpeaking(false);
+            return;
+        }
+
+        setIsExplaining(true);
+        setExplanation(""); // Clear previous
+
+        try {
+            // Construct a data summary for the AI
+            const dataSummary = `
+                Crop: ${crop}.
+                Weather: ${temp}°C, ${humidity}% Humidity, ${rainfall}mm Rain.
+                Prediction: ${result.primary_pest.pest_name} with ${result.primary_pest.risk_level} risk (${result.primary_pest.risk_score}%).
+                Recommendation: ${result.primary_pest.recommendation}.
+            `;
+
+            const text = await simplifyTextForFarmer(dataSummary, lang);
+            setExplanation(text);
+
+            setIsSpeaking(true);
+            speakText(text, lang === "Hindi" ? "hi-IN" : "en-US");
+
+            // Monitor speech end (simple timeout approximation)
+            const words = text.split(" ").length;
+            setTimeout(() => setIsSpeaking(false), words * 600);
+
+        } catch (error) {
+            console.error(error);
+        } finally {
+            setIsExplaining(false);
         }
     };
 
@@ -107,6 +151,58 @@ const PestPrediction = () => {
                 <div className="space-y-6">
                     {result ? (
                         <>
+                            <motion.div
+                                initial={{ opacity: 0, y: -10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                className="bg-gradient-to-r from-indigo-500/10 to-purple-500/10 border border-indigo-500/20 rounded-xl p-4 backdrop-blur-md"
+                            >
+                                <div className="flex flex-col gap-4">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <div className="p-2 bg-indigo-500/20 rounded-full text-indigo-400">
+                                                <Mic className="h-5 w-5" />
+                                            </div>
+                                            <div>
+                                                <h3 className="font-semibold text-indigo-300">AI Agro-Advisor</h3>
+                                                <p className="text-xs text-muted-foreground">Hear this analysis in your language</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <Button
+                                                size="sm"
+                                                variant={isSpeaking ? "destructive" : "outline"}
+                                                className={isSpeaking ? "" : "border-indigo-500/30 hover:bg-indigo-500/10"}
+                                                onClick={() => handleExplain("Hindi")}
+                                                disabled={isExplaining}
+                                            >
+                                                {isExplaining ? (
+                                                    <span className="animate-spin mr-2">⏳</span>
+                                                ) : isSpeaking ? (
+                                                    <StopCircle className="h-4 w-4 mr-1" />
+                                                ) : (
+                                                    <Volume2 className="h-4 w-4 mr-1" />
+                                                )}
+                                                {isSpeaking ? "Stop" : "Hindi"}
+                                            </Button>
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                className="border-indigo-500/30 hover:bg-indigo-500/10"
+                                                onClick={() => handleExplain("English")}
+                                                disabled={isExplaining || isSpeaking}
+                                            >
+                                                English
+                                            </Button>
+                                        </div>
+                                    </div>
+
+                                    {explanation && (
+                                        <div className="p-3 bg-background/40 rounded-lg text-sm leading-relaxed border border-white/5 animate-in fade-in slide-in-from-top-2">
+                                            <p>"{explanation}"</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </motion.div>
                             <Card className="border-l-4 border-l-blue-500 shadow-md">
                                 <CardHeader>
                                     <CardTitle>Forecast Result</CardTitle>
