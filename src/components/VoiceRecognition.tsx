@@ -26,12 +26,15 @@ const VoiceRecognition = () => {
   ];
 
   useEffect(() => {
+    console.log('Checking speech recognition support...');
     if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+      console.log('✅ Speech recognition supported');
       const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
       recognition.current = new SpeechRecognition();
       recognition.current.continuous = false;
       recognition.current.interimResults = false;
       recognition.current.lang = selectedLanguage;
+      console.log('Speech recognition initialized with language:', selectedLanguage);
 
       recognition.current.onresult = async (event: any) => {
         const spokenText = event.results[0][0].transcript;
@@ -83,6 +86,16 @@ const VoiceRecognition = () => {
 
       recognition.current.onerror = (event: any) => {
         console.error('Speech recognition error:', event.error);
+        let errorMessage = 'Speech recognition error: ' + event.error;
+        if (event.error === 'not-allowed') {
+          errorMessage = 'Microphone permission denied. Please allow microphone access in your browser.';
+        } else if (event.error === 'no-speech') {
+          errorMessage = 'No speech detected. Please try speaking louder.';
+        } else if (event.error === 'network') {
+          errorMessage = 'Network error. Please check your internet connection.';
+        }
+        setResponse(errorMessage);
+        setHindiResponse('माइक्रोफ़ोन की समस्या है। कृपया अनुमति दें।');
         setIsListening(false);
         setIsProcessing(false);
       };
@@ -92,8 +105,12 @@ const VoiceRecognition = () => {
       };
 
       recognition.current.onstart = () => {
-        console.log('Speech recognition started');
+        console.log('✅ Speech recognition started successfully');
       };
+    } else {
+      console.error('❌ Speech recognition not supported in this browser');
+      setResponse('Speech recognition not supported. Please use Chrome or Edge browser.');
+      setHindiResponse('आवाज़ पहचान समर्थित नहीं। Chrome या Edge ब्राउज़र का उपयोग करें।');
     }
   }, [selectedLanguage]);
 

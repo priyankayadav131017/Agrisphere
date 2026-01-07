@@ -699,7 +699,6 @@ def market_advisory():
         print(f"Market Advisory Error: {e}")
         return jsonify({'error': str(e)}), 500
 
-<<<<<<< HEAD
 @app.route('/marketplace/listings', methods=['GET'])
 def get_marketplace_listings():
     """Get all produce listings from other farmers"""
@@ -738,7 +737,7 @@ def add_marketplace_listing():
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-=======
+
 @app.route('/generate-digital-twin', methods=['POST'])
 def generate_digital_twin():
     try:
@@ -916,8 +915,6 @@ def analyze_health():
     except Exception as e:
         print(f"Health Analysis Error: {e}")
         return jsonify({'error': str(e)}), 500
-
->>>>>>> 44612f63f18f414989e95cad041efb4d88c4764e
 if __name__ == '__main__':
     print("\n" + "="*50)
     print("AgriSphere AI API Server Starting...")

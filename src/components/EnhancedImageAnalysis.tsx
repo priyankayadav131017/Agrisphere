@@ -31,11 +31,9 @@ const EnhancedImageAnalysis: React.FC<EnhancedImageAnalysisProps> = ({
   const [detector] = useState(() => new EnhancedDiseaseDetector());
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [voiceLanguage, setVoiceLanguage] = useState<'en' | 'hi'>('en');
-
-  /* New error state variable added here, ensure useState is imported or updated if needed */
-  const [error, setError] = useState<string | null>(null);
   const [speechState, setSpeechState] = useState<'idle' | 'speaking' | 'paused'>('idle');
   const speechRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const progressInterval = useRef<NodeJS.Timeout | null>(null);
 
   const stopSpeech = useCallback(() => {
     window.speechSynthesis.cancel();
@@ -68,21 +66,13 @@ const EnhancedImageAnalysis: React.FC<EnhancedImageAnalysisProps> = ({
     }
   }, []);
 
-  /* Store interval ref to clear it on error */
-  const progressInterval = useRef<NodeJS.Timeout | null>(null);
-
   const handleAnalyze = useCallback(async () => {
     if (!selectedFile) return;
 
     setIsAnalyzing(true);
     setProgress(0);
-<<<<<<< HEAD
     setError(null);
     setResults(null);
-=======
-    setResults(null);
-    setError(null);
->>>>>>> 44612f63f18f414989e95cad041efb4d88c4764e
 
     try {
       // Initialize detector
@@ -97,32 +87,20 @@ const EnhancedImageAnalysis: React.FC<EnhancedImageAnalysisProps> = ({
       // Perform multi-class analysis
       const analysisResults = await detector.detectMultiClass(selectedFile);
 
-<<<<<<< HEAD
-      clearInterval(progressInterval);
-=======
       if (progressInterval.current) clearInterval(progressInterval.current);
->>>>>>> 44612f63f18f414989e95cad041efb4d88c4764e
       setProgress(100);
 
       setResults(analysisResults);
       onResultsChange?.(analysisResults);
-<<<<<<< HEAD
     } catch (err: any) {
       console.error('Analysis failed:', err);
+      if (progressInterval.current) clearInterval(progressInterval.current);
+      
       if (err.message === 'NOT_A_PLANT') {
         setError('Not correct! The uploaded image is not a plant part or soil.');
       } else {
         setError(err.message || 'Analysis failed. Please check if the API server is running.');
       }
-=======
-    } catch (error) {
-      console.error('Analysis failed:', error);
-      if (progressInterval.current) clearInterval(progressInterval.current);
-
-      const errorMessage = error instanceof Error ? error.message : "Analysis failed";
-      // Set the error state instead of using toast
-      setError(errorMessage);
->>>>>>> 44612f63f18f414989e95cad041efb4d88c4764e
     } finally {
       setIsAnalyzing(false);
       setTimeout(() => setProgress(0), 1000);
@@ -231,26 +209,126 @@ const EnhancedImageAnalysis: React.FC<EnhancedImageAnalysisProps> = ({
             </p>
           </div>
         )}
-
-        {error && (
-          <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-3 text-red-700 animate-in fade-in slide-in-from-top-2">
-            <AlertTriangle className="w-5 h-5 flex-shrink-0" />
-            <p className="font-medium text-sm">{error}</p>
-          </div>
-        )}
       </Card>
 
       {/* Results Section */}
-<<<<<<< HEAD
       {results && (
         <div className="space-y-6">
           {/* Overall Health Score */}
           <Card className="p-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-xl font-bold">Overall Plant Health</h3>
-              <Badge className={`${getHealthStatusColor(results.overallHealth.status)} text-lg px-3 py-1`}>
-                {results.overallHealth.score}/100
-              </Badge>
+              <div className="flex gap-2 items-center">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-2"
+                  onClick={() => setVoiceLanguage(prev => prev === 'en' ? 'hi' : 'en')}
+                >
+                  {voiceLanguage === 'en' ? 'EN' : 'HI'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-2 text-primary border-primary/20 hover:bg-primary/5"
+                  onClick={() => {
+                    if (speechState === 'speaking') {
+                      pauseSpeech();
+                      return;
+                    }
+                    if (speechState === 'paused') {
+                      resumeSpeech();
+                      return;
+                    }
+
+                    const speech = new SpeechSynthesisUtterance();
+                    speechRef.current = speech;
+
+                    const { overallHealth, diseases, pests, nutrientDeficiency, soilAnalysis } = results;
+
+                    let text = `The overall plant health is ${overallHealth.status}. Score is ${overallHealth.score} out of 100. `;
+
+                    // Diseases
+                    if (diseases.length > 0) {
+                      text += `I have detected ${diseases.length} disease issues. `;
+                      diseases.forEach(d => {
+                        text += `Found ${d.disease.replace('_', ' ')} with ${(d.confidence * 100).toFixed(0)}% confidence. Treatment: ${d.treatment}. `;
+                      });
+                    } else {
+                      text += "No diseases detected. ";
+                    }
+
+                    // Pests
+                    if (pests.length > 0) {
+                      text += `I also found ${pests.length} pest issues. `;
+                      pests.forEach(p => {
+                        text += `Identified ${p.pest.replace('_', ' ')}. Control it using: ${p.chemicalControl[0] || 'recommended pesticides'}. `;
+                      });
+                    }
+
+                    // Nutrients
+                    if (nutrientDeficiency.length > 0) {
+                      text += `There are ${nutrientDeficiency.length} nutrient deficiencies. `;
+                      nutrientDeficiency.forEach(n => {
+                        text += `It seems to lack ${n.nutrient.replace('_', ' ')}. Recommended fertilizer is ${n.fertilizer}. `;
+                      });
+                    }
+
+                    // Soil
+                    text += `Soil texture is ${soilAnalysis.texture}, and fertility is ${soilAnalysis.fertility}. `;
+                    text += `Please check the detailed priority recommendations below.`;
+
+                    // Translate if Hindi is selected
+                    if (voiceLanguage === 'hi') {
+                      text = translateToHindi(text);
+                      speech.lang = 'hi-IN';
+                    }
+
+                    speech.text = text;
+                    speech.rate = 0.9;
+
+                    speech.onend = () => setSpeechState('idle');
+                    speech.onerror = () => setSpeechState('idle');
+
+                    window.speechSynthesis.cancel();
+                    window.speechSynthesis.speak(speech);
+                    setSpeechState('speaking');
+                    toast.info(voiceLanguage === 'hi' ? "Parinam samjhaye ja rahe hain..." : "Explaining full analysis...");
+                  }}
+                >
+                  {speechState === 'idle' ? (
+                    <>
+                      <Volume2 className="w-4 h-4" />
+                      {voiceLanguage === 'hi' ? 'Parinam Samjhayein' : 'Explain Results'}
+                    </>
+                  ) : speechState === 'speaking' ? (
+                    <>
+                      <Pause className="w-4 h-4" />
+                      {voiceLanguage === 'hi' ? 'Rokein' : 'Pause'}
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-4 h-4" />
+                      {voiceLanguage === 'hi' ? 'Jaari Rakhein' : 'Resume'}
+                    </>
+                  )}
+                </Button>
+
+                {/* Stop Button - Only show when active */}
+                {speechState !== 'idle' && (
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    className="gap-2"
+                    onClick={stopSpeech}
+                  >
+                    <Square className="w-4 h-4 fill-current" />
+                  </Button>
+                )}
+                <Badge className={`${getHealthStatusColor(results.overallHealth.status)} text-lg px-3 py-1`}>
+                  {results.overallHealth.score}/100
+                </Badge>
+              </div>
             </div>
 
             <div className="grid md:grid-cols-2 gap-6">
@@ -273,382 +351,137 @@ const EnhancedImageAnalysis: React.FC<EnhancedImageAnalysisProps> = ({
                   <p>Plant Part: <span className="font-medium capitalize">{results.imageAnalysis.plantPart}</span></p>
                   <p>Quality: <span className="font-medium capitalize">{results.imageAnalysis.quality}</span></p>
                   <p>Processing Time: <span className="font-medium">{results.imageAnalysis.processingTime}ms</span></p>
-=======
-      {
-        results && (
-          <div className="space-y-6">
-            {/* Overall Health Score */}
-            <Card className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xl font-bold">Overall Plant Health</h3>
-                <div className="flex gap-2 items-center">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="gap-2"
-                    onClick={() => setVoiceLanguage(prev => prev === 'en' ? 'hi' : 'en')}
-                  >
-                    {voiceLanguage === 'en' ? 'EN' : 'HI'}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="gap-2 text-primary border-primary/20 hover:bg-primary/5"
-                    onClick={() => {
-                      if (speechState === 'speaking') {
-                        pauseSpeech();
-                        return;
-                      }
-                      if (speechState === 'paused') {
-                        resumeSpeech();
-                        return;
-                      }
-
-                      const speech = new SpeechSynthesisUtterance();
-                      speechRef.current = speech;
-
-                      const { overallHealth, diseases, pests, nutrientDeficiency, soilAnalysis } = results;
-
-                      let text = `The overall plant health is ${overallHealth.status}. Score is ${overallHealth.score} out of 100. `;
-
-                      // Diseases
-                      if (diseases.length > 0) {
-                        text += `I have detected ${diseases.length} disease issues. `;
-                        diseases.forEach(d => {
-                          text += `Found ${d.disease.replace('_', ' ')} with ${(d.confidence * 100).toFixed(0)}% confidence. Treatment: ${d.treatment}. `;
-                        });
-                      } else {
-                        text += "No diseases detected. ";
-                      }
-
-                      // Pests
-                      if (pests.length > 0) {
-                        text += `I also found ${pests.length} pest issues. `;
-                        pests.forEach(p => {
-                          text += `Identified ${p.pest.replace('_', ' ')}. Control it using: ${p.chemicalControl[0] || 'recommended pesticides'}. `;
-                        });
-                      }
-
-                      // Nutrients
-                      if (nutrientDeficiency.length > 0) {
-                        text += `There are ${nutrientDeficiency.length} nutrient deficiencies. `;
-                        nutrientDeficiency.forEach(n => {
-                          text += `It seems to lack ${n.nutrient.replace('_', ' ')}. Recommended fertilizer is ${n.fertilizer}. `;
-                        });
-                      }
-
-                      // Soil
-                      text += `Soil texture is ${soilAnalysis.texture}, and fertility is ${soilAnalysis.fertility}. `;
-                      text += `Please check the detailed priority recommendations below.`;
-
-                      // Translate if Hindi is selected
-                      if (voiceLanguage === 'hi') {
-                        text = translateToHindi(text);
-                        speech.lang = 'hi-IN';
-                      }
-
-                      speech.text = text;
-                      speech.rate = 0.9;
-
-                      speech.onend = () => setSpeechState('idle');
-                      speech.onerror = () => setSpeechState('idle');
-
-                      window.speechSynthesis.cancel();
-                      window.speechSynthesis.speak(speech);
-                      setSpeechState('speaking');
-                      toast.info(voiceLanguage === 'hi' ? "Parinam samjhaye ja rahe hain..." : "Explaining full analysis...");
-                    }}
-                  >
-                    {speechState === 'idle' ? (
-                      <>
-                        <Volume2 className="w-4 h-4" />
-                        {voiceLanguage === 'hi' ? 'Parinam Samjhayein' : 'Explain Results'}
-                      </>
-                    ) : speechState === 'speaking' ? (
-                      <>
-                        <Pause className="w-4 h-4" />
-                        {voiceLanguage === 'hi' ? 'Rokein' : 'Pause'}
-                      </>
-                    ) : (
-                      <>
-                        <Play className="w-4 h-4" />
-                        {voiceLanguage === 'hi' ? 'Jaari Rakhein' : 'Resume'}
-                      </>
-                    )}
-                  </Button>
-
-                  {/* Stop Button - Only show when active */}
-                  {speechState !== 'idle' && (
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      className="gap-2"
-                      onClick={stopSpeech}
-                    >
-                      <Square className="w-4 h-4 fill-current" />
-                    </Button>
-                  )}
-                  <Badge className={`${getHealthStatusColor(results.overallHealth.status)} text-lg px-3 py-1`}>
-                    {results.overallHealth.score}/100
-                  </Badge>
->>>>>>> 44612f63f18f414989e95cad041efb4d88c4764e
                 </div>
               </div>
+            </div>
 
-              <div className="grid md:grid-cols-2 gap-6">
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <Activity className="w-5 h-5 text-primary" />
-                    <span className="font-medium">Health Status</span>
-                  </div>
-                  <p className={`text-2xl font-bold capitalize ${getHealthStatusColor(results.overallHealth.status)}`}>
-                    {results.overallHealth.status}
-                  </p>
-                </div>
-
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <Target className="w-5 h-5 text-primary" />
-                    <span className="font-medium">Image Analysis</span>
-                  </div>
-                  <div className="text-sm space-y-1">
-                    <p>Plant Part: <span className="font-medium capitalize">{results.imageAnalysis.plantPart}</span></p>
-                    <p>Quality: <span className="font-medium capitalize">{results.imageAnalysis.quality}</span></p>
-                    <p>Processing Time: <span className="font-medium">{results.imageAnalysis.processingTime}ms</span></p>
-                  </div>
-                </div>
+            {results.overallHealth.recommendations.length > 0 && (
+              <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-950/30 rounded-lg">
+                <h4 className="font-medium mb-2 flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4 text-blue-500" />
+                  Priority Recommendations
+                </h4>
+                <ul className="text-sm space-y-1">
+                  {results.overallHealth.recommendations.slice(0, 3).map((rec, idx) => (
+                    <li key={idx} className="flex items-start gap-2">
+                      <span className="text-blue-500 mt-1">•</span>
+                      {rec}
+                    </li>
+                  ))}
+                </ul>
               </div>
+            )}
+          </Card>
 
-              {results.overallHealth.recommendations.length > 0 && (
-                <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-950/30 rounded-lg">
-                  <h4 className="font-medium mb-2 flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-blue-500" />
-                    Priority Recommendations
-                  </h4>
-                  <ul className="text-sm space-y-1">
-                    {results.overallHealth.recommendations.slice(0, 3).map((rec, idx) => (
-                      <li key={idx} className="flex items-start gap-2">
-                        <span className="text-blue-500 mt-1">•</span>
-                        {rec}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </Card>
+          {/* Detailed Analysis Tabs */}
+          <Card className="p-6">
+            <Tabs defaultValue="diseases" className="w-full">
+              <TabsList className="grid w-full grid-cols-4">
+                <TabsTrigger value="diseases" className="flex items-center gap-2">
+                  <Leaf className="w-4 h-4" />
+                  Diseases ({results.diseases.length})
+                </TabsTrigger>
+                <TabsTrigger value="pests" className="flex items-center gap-2">
+                  <Bug className="w-4 h-4" />
+                  Pests ({results.pests.length})
+                </TabsTrigger>
+                <TabsTrigger value="nutrients" className="flex items-center gap-2">
+                  <Droplets className="w-4 h-4" />
+                  Nutrients ({results.nutrientDeficiency.length})
+                </TabsTrigger>
+                <TabsTrigger value="soil" className="flex items-center gap-2">
+                  <Apple className="w-4 h-4" />
+                  Soil Analysis
+                </TabsTrigger>
+              </TabsList>
 
-            {/* Detailed Analysis Tabs */}
-            <Card className="p-6">
-              <Tabs defaultValue="diseases" className="w-full">
-                <TabsList className="grid w-full grid-cols-4">
-                  <TabsTrigger value="diseases" className="flex items-center gap-2">
-                    <Leaf className="w-4 h-4" />
-                    Diseases ({results.diseases.length})
-                  </TabsTrigger>
-                  <TabsTrigger value="pests" className="flex items-center gap-2">
-                    <Bug className="w-4 h-4" />
-                    Pests ({results.pests.length})
-                  </TabsTrigger>
-                  <TabsTrigger value="nutrients" className="flex items-center gap-2">
-                    <Droplets className="w-4 h-4" />
-                    Nutrients ({results.nutrientDeficiency.length})
-                  </TabsTrigger>
-                  <TabsTrigger value="soil" className="flex items-center gap-2">
-                    <Apple className="w-4 h-4" />
-                    Soil Analysis
-                  </TabsTrigger>
-                </TabsList>
-
-                {/* Disease Analysis */}
-                <TabsContent value="diseases" className="space-y-4">
-                  {results.diseases.length > 0 ? (
-                    results.diseases.map((disease, idx) => (
-                      <Card key={idx} className="p-4">
-                        <div className="flex justify-between items-start mb-3">
-                          <div>
-                            <h4 className="font-bold text-lg capitalize">{disease.disease.replace('_', ' ')}</h4>
-                            <p className="text-sm text-muted-foreground">
-                              Affected: {disease.affectedPart} • Confidence: {(disease.confidence * 100).toFixed(1)}%
-                            </p>
-                          </div>
-                          <Badge className={getSeverityColor(disease.severity)}>
-                            {disease.severity}
-                          </Badge>
-                        </div>
-
-                        <div className="grid md:grid-cols-2 gap-4">
-                          <div>
-                            <h5 className="font-medium mb-2">Symptoms</h5>
-                            <ul className="text-sm space-y-1">
-                              {disease.symptoms.map((symptom, i) => (
-                                <li key={i} className="flex items-start gap-2">
-                                  <span className="text-red-500 mt-1">•</span>
-                                  {symptom}
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-
-                          <div>
-                            <h5 className="font-medium mb-2">Treatment</h5>
-                            <p className="text-sm bg-green-50 dark:bg-green-950/30 p-3 rounded">
-                              {disease.treatment}
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="mt-4 pt-4 border-t">
-                          <div className="grid md:grid-cols-2 gap-4">
-                            <div>
-                              <h5 className="font-medium mb-2">Preventive Measures</h5>
-                              <ul className="text-xs space-y-1">
-                                {disease.preventiveMeasures.map((measure, i) => (
-                                  <li key={i} className="flex items-start gap-2">
-                                    <CheckCircle className="w-3 h-3 text-green-500 mt-0.5" />
-                                    {measure}
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-
-                            <div>
-                              <h5 className="font-medium mb-2">Economic Impact</h5>
-                              <p className="text-xs bg-orange-50 dark:bg-orange-950/30 p-2 rounded">
-                                {disease.economicImpact}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      </Card>
-                    ))
-                  ) : (
-                    <div className="text-center py-8 text-muted-foreground">
-                      <CheckCircle className="w-12 h-12 mx-auto mb-3 text-green-500" />
-                      <p>No diseases detected. Plant appears healthy!</p>
-                    </div>
-                  )}
-                </TabsContent>
-
-                {/* Pest Analysis */}
-                <TabsContent value="pests" className="space-y-4">
-                  {results.pests.length > 0 ? (
-                    results.pests.map((pest, idx) => (
-                      <Card key={idx} className="p-4">
-                        <div className="flex justify-between items-start mb-3">
-                          <div>
-                            <h4 className="font-bold text-lg capitalize">{pest.pest.replace('_', ' ')}</h4>
-                            <p className="text-sm text-muted-foreground">
-                              Confidence: {(pest.confidence * 100).toFixed(1)}%
-                            </p>
-                          </div>
-                          <Badge className={getSeverityColor(pest.severity)}>
-                            {pest.severity}
-                          </Badge>
-                        </div>
-
-                        <div className="grid md:grid-cols-2 gap-4">
-                          <div>
-                            <h5 className="font-medium mb-2">Damage Type</h5>
-                            <p className="text-sm bg-red-50 dark:bg-red-950/30 p-3 rounded">
-                              {pest.damage}
-                            </p>
-
-                            <h5 className="font-medium mb-2 mt-4">Lifecycle</h5>
-                            <p className="text-sm">{pest.lifecycle}</p>
-                          </div>
-
-                          <div>
-                            <h5 className="font-medium mb-2">Biological Control</h5>
-                            <ul className="text-sm space-y-1 mb-4">
-                              {pest.biologicalControl.map((control, i) => (
-                                <li key={i} className="flex items-center gap-2">
-                                  <Bug className="w-3 h-3 text-green-500" />
-                                  {control}
-                                </li>
-                              ))}
-                            </ul>
-
-                            <h5 className="font-medium mb-2">Chemical Control</h5>
-                            <ul className="text-sm space-y-1">
-                              {pest.chemicalControl.map((control, i) => (
-                                <li key={i} className="flex items-center gap-2">
-                                  <Zap className="w-3 h-3 text-orange-500" />
-                                  {control}
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        </div>
-                      </Card>
-                    ))
-                  ) : (
-                    <div className="text-center py-8 text-muted-foreground">
-                      <CheckCircle className="w-12 h-12 mx-auto mb-3 text-green-500" />
-                      <p>No pests detected. Plant is pest-free!</p>
-                    </div>
-                  )}
-                </TabsContent>
-
-                {/* Nutrient Analysis */}
-                <TabsContent value="nutrients" className="space-y-4">
-                  {results.nutrientDeficiency.length > 0 ? (
-                    results.nutrientDeficiency.map((nutrient, idx) => (
-                      <Card key={idx} className="p-4">
-                        <div className="flex justify-between items-start mb-3">
-                          <div>
-                            <h4 className="font-bold text-lg capitalize">
-                              {nutrient.nutrient.replace('_', ' ')}
-                            </h4>
-                            <p className="text-sm text-muted-foreground">
-                              Confidence: {(nutrient.confidence * 100).toFixed(1)}%
-                            </p>
-                          </div>
-                          <Badge className={getSeverityColor(nutrient.severity)}>
-                            {nutrient.severity}
-                          </Badge>
-                        </div>
-
-                        <div className="grid md:grid-cols-2 gap-4">
-                          <div>
-                            <h5 className="font-medium mb-2">Symptoms</h5>
-                            <ul className="text-sm space-y-1">
-                              {nutrient.symptoms.map((symptom, i) => (
-                                <li key={i} className="flex items-start gap-2">
-                                  <AlertTriangle className="w-3 h-3 text-yellow-500 mt-1" />
-                                  {symptom}
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-
-                          <div>
-                            <h5 className="font-medium mb-2">Recommended Fertilizer</h5>
-                            <p className="text-sm bg-blue-50 dark:bg-blue-950/30 p-3 rounded mb-3">
-                              {nutrient.fertilizer}
-                            </p>
-
-                            <h5 className="font-medium mb-2">Soil Amendment</h5>
-                            <p className="text-sm">{nutrient.soilAmendment}</p>
-                          </div>
-                        </div>
-
-                        <div className="mt-4 pt-4 border-t">
-                          <h5 className="font-medium mb-2">Growth Impact</h5>
-                          <p className="text-sm bg-orange-50 dark:bg-orange-950/30 p-3 rounded">
-                            {nutrient.affectedGrowth}
+              {/* Disease Analysis */}
+              <TabsContent value="diseases" className="space-y-4">
+                {results.diseases.length > 0 ? (
+                  results.diseases.map((disease, idx) => (
+                    <Card key={idx} className="p-4">
+                      <div className="flex justify-between items-start mb-3">
+                        <div>
+                          <h4 className="font-bold text-lg capitalize">{disease.disease.replace('_', ' ')}</h4>
+                          <p className="text-sm text-muted-foreground">
+                            Affected: {disease.affectedPart} • Confidence: {(disease.confidence * 100).toFixed(1)}%
                           </p>
                         </div>
-                      </Card>
-                    ))
-                  ) : (
-                    <div className="text-center py-8 text-muted-foreground">
-                      <CheckCircle className="w-12 h-12 mx-auto mb-3 text-green-500" />
-                      <p>No nutrient deficiencies detected. Nutrition levels are adequate!</p>
-                    </div>
-                  )}
-                </TabsContent>
+                        <Badge className={getSeverityColor(disease.severity)}>
+                          {disease.severity}
+                        </Badge>
+                      </div>
 
-<<<<<<< HEAD
+                      <div className="grid md:grid-cols-2 gap-4">
+                        <div>
+                          <h5 className="font-medium mb-2">Symptoms</h5>
+                          <ul className="text-sm space-y-1">
+                            {disease.symptoms.map((symptom, i) => (
+                              <li key={i} className="flex items-start gap-2">
+                                <span className="text-red-500 mt-1">•</span>
+                                {symptom}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+
+                        <div>
+                          <h5 className="font-medium mb-2">Treatment</h5>
+                          <p className="text-sm bg-green-50 dark:bg-green-950/30 p-3 rounded">
+                            {disease.treatment}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 pt-4 border-t">
+                        <div className="grid md:grid-cols-2 gap-4">
+                          <div>
+                            <h5 className="font-medium mb-2">Preventive Measures</h5>
+                            <ul className="text-xs space-y-1">
+                              {disease.preventiveMeasures.map((measure, i) => (
+                                <li key={i} className="flex items-start gap-2">
+                                  <CheckCircle className="w-3 h-3 text-green-500 mt-0.5" />
+                                  {measure}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+
+                          <div>
+                            <h5 className="font-medium mb-2">Economic Impact</h5>
+                            <p className="text-xs bg-orange-50 dark:bg-orange-950/30 p-2 rounded">
+                              {disease.economicImpact}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </Card>
+                  ))
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <CheckCircle className="w-12 h-12 mx-auto mb-3 text-green-500" />
+                    <p>No diseases detected. Plant appears healthy!</p>
+                  </div>
+                )}
+              </TabsContent>
+
+              {/* Pest Analysis */}
+              <TabsContent value="pests" className="space-y-4">
+                {results.pests.length > 0 ? (
+                  results.pests.map((pest, idx) => (
+                    <Card key={idx} className="p-4">
+                      <div className="flex justify-between items-start mb-3">
+                        <div>
+                          <h4 className="font-bold text-lg capitalize">{pest.pest.replace('_', ' ')}</h4>
+                          <p className="text-sm text-muted-foreground">
+                            Confidence: {(pest.confidence * 100).toFixed(1)}%
+                          </p>
+                        </div>
+                        <Badge className={getSeverityColor(pest.severity)}>
+                          {pest.severity}
+                        </Badge>
+                      </div>
+
                       <div className="grid md:grid-cols-2 gap-4">
                         <div>
                           <h5 className="font-medium mb-2">Damage Type</h5>
@@ -766,77 +599,59 @@ const EnhancedImageAnalysis: React.FC<EnhancedImageAnalysisProps> = ({
                       <MapPin className="w-8 h-8 mx-auto mb-2 text-brown-600" />
                       <div className="font-bold text-lg capitalize">{results.soilAnalysis.texture}</div>
                       <div className="text-sm text-muted-foreground">Soil Texture</div>
-=======
-                {/* Soil Analysis */}
-                <TabsContent value="soil" className="space-y-4">
-                  <Card className="p-4">
-                    <div className="flex justify-between items-start mb-4">
-                      <h4 className="font-bold text-lg">Soil Analysis Results</h4>
-                      <Badge className="bg-primary text-white">
-                        {(results.soilAnalysis.confidence * 100).toFixed(1)}% Confidence
-                      </Badge>
->>>>>>> 44612f63f18f414989e95cad041efb4d88c4764e
                     </div>
 
-                    <div className="grid md:grid-cols-3 gap-4 mb-6">
-                      <div className="text-center p-4 bg-brown-50 dark:bg-brown-950/30 rounded-lg">
-                        <MapPin className="w-8 h-8 mx-auto mb-2 text-brown-600" />
-                        <div className="font-bold text-lg capitalize">{results.soilAnalysis.texture}</div>
-                        <div className="text-sm text-muted-foreground">Soil Texture</div>
-                      </div>
-
-                      <div className="text-center p-4 bg-blue-50 dark:bg-blue-950/30 rounded-lg">
-                        <Droplets className="w-8 h-8 mx-auto mb-2 text-blue-600" />
-                        <div className="font-bold text-lg">{results.soilAnalysis.ph.toFixed(1)}</div>
-                        <div className="text-sm text-muted-foreground">pH Level</div>
-                      </div>
-
-                      <div className="text-center p-4 bg-green-50 dark:bg-green-950/30 rounded-lg">
-                        <TrendingUp className="w-8 h-8 mx-auto mb-2 text-green-600" />
-                        <div className="font-bold text-lg capitalize">{results.soilAnalysis.fertility}</div>
-                        <div className="text-sm text-muted-foreground">Fertility</div>
-                      </div>
+                    <div className="text-center p-4 bg-blue-50 dark:bg-blue-950/30 rounded-lg">
+                      <Droplets className="w-8 h-8 mx-auto mb-2 text-blue-600" />
+                      <div className="font-bold text-lg">{results.soilAnalysis.ph.toFixed(1)}</div>
+                      <div className="text-sm text-muted-foreground">pH Level</div>
                     </div>
 
-                    <div className="grid md:grid-cols-2 gap-6">
-                      <div>
-                        <h5 className="font-medium mb-3">Soil Properties</h5>
-                        <div className="space-y-2 text-sm">
-                          <div className="flex justify-between">
-                            <span>Moisture:</span>
-                            <span className="font-medium">{results.soilAnalysis.moisture.toFixed(1)}%</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>Organic Matter:</span>
-                            <span className="font-medium">{results.soilAnalysis.organicMatter.toFixed(1)}%</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>Drainage:</span>
-                            <span className="font-medium capitalize">{results.soilAnalysis.drainage}</span>
-                          </div>
+                    <div className="text-center p-4 bg-green-50 dark:bg-green-950/30 rounded-lg">
+                      <TrendingUp className="w-8 h-8 mx-auto mb-2 text-green-600" />
+                      <div className="font-bold text-lg capitalize">{results.soilAnalysis.fertility}</div>
+                      <div className="text-sm text-muted-foreground">Fertility</div>
+                    </div>
+                  </div>
+
+                  <div className="grid md:grid-cols-2 gap-6">
+                    <div>
+                      <h5 className="font-medium mb-3">Soil Properties</h5>
+                      <div className="space-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <span>Moisture:</span>
+                          <span className="font-medium">{results.soilAnalysis.moisture.toFixed(1)}%</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Organic Matter:</span>
+                          <span className="font-medium">{results.soilAnalysis.organicMatter.toFixed(1)}%</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Drainage:</span>
+                          <span className="font-medium capitalize">{results.soilAnalysis.drainage}</span>
                         </div>
                       </div>
-
-                      <div>
-                        <h5 className="font-medium mb-3">Recommendations</h5>
-                        <ul className="text-sm space-y-2">
-                          {results.soilAnalysis.recommendations.map((rec, i) => (
-                            <li key={i} className="flex items-start gap-2">
-                              <CheckCircle className="w-3 h-3 text-green-500 mt-1" />
-                              {rec}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
                     </div>
-                  </Card>
-                </TabsContent>
-              </Tabs>
-            </Card>
-          </div>
-        )
-      }
-    </div >
+
+                    <div>
+                      <h5 className="font-medium mb-3">Recommendations</h5>
+                      <ul className="text-sm space-y-2">
+                        {results.soilAnalysis.recommendations.map((rec, i) => (
+                          <li key={i} className="flex items-start gap-2">
+                            <CheckCircle className="w-3 h-3 text-green-500 mt-1" />
+                            {rec}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                </Card>
+              </TabsContent>
+            </Tabs>
+          </Card>
+        </div>
+      )}
+    </div>
   );
 };
 
