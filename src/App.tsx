@@ -20,6 +20,8 @@ const Signup = lazy(() => import("./components/Signup"));
 const FertilizerRecommendation = lazy(() => import("./pages/FertilizerRecommendation"));
 
 const PestPrediction = lazy(() => import("./pages/PestPrediction"));
+const AdvisoryHub = lazy(() => import("./pages/AdvisoryHub"));
+const ComprehensiveDashboard = lazy(() => import("./pages/ComprehensiveDashboard"));
 
 const queryClient = new QueryClient();
 
@@ -75,12 +77,14 @@ const App = () => {
               {/* Public routes for demo */}
               <Route path="/digital-twin" element={<DigitalTwin />} />
               <Route path="/disease-detection" element={<DiseaseDetection />} />
+              <Route path="/advisory-hub" element={<AdvisoryHub />} />
               {/* Protected routes */}
               <Route path="/yield-prediction" element={<ProtectedRoute><YieldPrediction /></ProtectedRoute>} />
               <Route path="/marketplace" element={<ProtectedRoute><Marketplace /></ProtectedRoute>} />
               <Route path="/voice-assistant" element={<ProtectedRoute><VoiceAssistant /></ProtectedRoute>} />
               <Route path="/fertilizer-recommendation" element={<ProtectedRoute><FertilizerRecommendation /></ProtectedRoute>} />
               <Route path="/pest-prediction" element={<ProtectedRoute><PestPrediction /></ProtectedRoute>} />
+              <Route path="/comprehensive-dashboard" element={<ProtectedRoute><ComprehensiveDashboard /></ProtectedRoute>} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>

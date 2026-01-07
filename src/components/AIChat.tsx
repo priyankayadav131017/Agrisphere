@@ -29,8 +29,14 @@ const AIChat = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [showHindi, setShowHindi] = useState(true);
+
+  // Speech handling state
+  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
+  const [isPaused, setIsPaused] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognition = useRef<any>(null);
+  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -43,13 +49,13 @@ const AIChat = () => {
       recognition.current = new SpeechRecognition();
       recognition.current.continuous = false;
       recognition.current.interimResults = false;
-      recognition.current.lang = 'hi-IN'; // Hindi language
+      recognition.current.lang = 'hi-IN'; // Hindi text listening
 
       recognition.current.onresult = (event: any) => {
         const transcript = event.results[0][0].transcript;
         setInputText(transcript);
         setIsListening(false);
-        
+
         // Stop recognition to prevent continuous listening
         if (recognition.current) {
           recognition.current.stop();
@@ -59,15 +65,29 @@ const AIChat = () => {
       recognition.current.onerror = () => {
         setIsListening(false);
       };
-      
+
       recognition.current.onend = () => {
         setIsListening(false);
       };
     }
+
+    // Cleanup speech synthesis on unmount
+    return () => {
+      window.speechSynthesis.cancel();
+    };
   }, []);
+
+  const handleStopSpeech = () => {
+    window.speechSynthesis.cancel();
+    setSpeakingMessageId(null);
+    setIsPaused(false);
+  };
 
   const handleSendMessage = async () => {
     if (!inputText.trim() || isLoading) return;
+
+    // Stop logic if we are speaking
+    handleStopSpeech();
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -81,12 +101,13 @@ const AIChat = () => {
     setIsLoading(true);
 
     try {
-      // Try OpenAI first, fallback to mock if it fails
+      // Try OpenAI/Groq first, fallback to mock if it fails
       let aiResponse: string;
       let hindiTranslation = '';
-      
+
       try {
         aiResponse = await chatWithAI(inputText, 'general');
+        // Ensure no repetition in translation either
         hindiTranslation = showHindi ? await translateToHindi(aiResponse) : '';
       } catch (openaiError) {
         console.log('OpenAI failed, using mock AI:', openaiError);
@@ -97,7 +118,7 @@ const AIChat = () => {
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
         text: aiResponse,
-        hindi: hindiTranslation,
+        hindi: hindiTranslation || aiResponse, // Ensure hindi is populated if translation skipped or failed
         isUser: false,
         timestamp: new Date()
       };
@@ -119,6 +140,8 @@ const AIChat = () => {
 
   const startListening = () => {
     if (recognition.current && !isListening) {
+      handleStopSpeech(); // Stop AI speaking when user starts speaking
+
       setIsListening(true);
       try {
         recognition.current.start();
@@ -140,10 +163,40 @@ const AIChat = () => {
     }
   };
 
-  const speakText = (text: string) => {
+  const handleSpeak = (text: string, messageId: string) => {
     if ('speechSynthesis' in window) {
+      // If already speaking this message, pause/resume logic
+      if (speakingMessageId === messageId) {
+        if (isPaused) {
+          window.speechSynthesis.resume();
+          setIsPaused(false);
+        } else {
+          window.speechSynthesis.pause();
+          setIsPaused(true);
+        }
+        return;
+      }
+
+      // New speech
+      window.speechSynthesis.cancel();
+      setIsPaused(false);
+      setSpeakingMessageId(messageId);
+
       const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = 'hi-IN';
+      utterance.lang = 'hi-IN'; // Default to Hindi accent/voice
+      utterance.rate = 1.0;
+
+      utterance.onend = () => {
+        setSpeakingMessageId(null);
+        setIsPaused(false);
+      };
+
+      utterance.onerror = () => {
+        setSpeakingMessageId(null);
+        setIsPaused(false);
+      };
+
+      utteranceRef.current = utterance;
       speechSynthesis.speak(utterance);
     }
   };
@@ -208,22 +261,44 @@ const AIChat = () => {
                     className={`flex ${message.isUser ? 'justify-end' : 'justify-start'}`}
                   >
                     <div
-                      className={`max-w-[80%] p-3 rounded-lg ${
-                        message.isUser
+                      className={`max-w-[85%] p-3 rounded-lg ${message.isUser
                           ? 'bg-primary text-primary-foreground'
                           : 'bg-muted'
-                      }`}
+                        }`}
                     >
-                      <p className="text-sm">{showHindi && message.hindi ? message.hindi : message.text}</p>
-                      {!message.isUser && message.hindi && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => speakText(message.hindi || message.text)}
-                          className="mt-2 p-1 h-6"
-                        >
-                          <Volume2 className="w-3 h-3" />
-                        </Button>
+                      <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                        {showHindi && message.hindi ? message.hindi : message.text}
+                      </p>
+                      {!message.isUser && (message.hindi || message.text) && (
+                        <div className="flex gap-2 mt-2 border-t border-gray-200/20 pt-2 items-center">
+                          {/* Play/Pause Button */}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleSpeak(message.hindi || message.text, message.id)}
+                            className={`h-6 w-6 p-0 hover:bg-black/10 rounded-full ${speakingMessageId === message.id ? 'text-primary' : ''}`}
+                            title={speakingMessageId === message.id && !isPaused ? "Pause" : "Listen in Hindi"}
+                          >
+                            {speakingMessageId === message.id && !isPaused ? (
+                              <span className="text-xs font-bold">⏸️</span>
+                            ) : (
+                              <Volume2 className="w-4 h-4" />
+                            )}
+                          </Button>
+
+                          {/* Stop Button (only visible when speaking this message) */}
+                          {speakingMessageId === message.id && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={handleStopSpeech}
+                              className="h-6 w-6 p-0 hover:bg-red-100 text-red-500 rounded-full"
+                              title="Stop Speaking"
+                            >
+                              <span className="text-xs font-bold">⏹️</span>
+                            </Button>
+                          )}
+                        </div>
                       )}
                     </div>
                   </motion.div>
@@ -260,9 +335,8 @@ const AIChat = () => {
                     size="sm"
                     variant="outline"
                     onClick={isListening ? stopListening : startListening}
-                    className={`transition-all duration-300 ${
-                      isListening ? 'bg-red-500 text-white animate-pulse' : ''
-                    }`}
+                    className={`transition-all duration-300 ${isListening ? 'bg-red-500 text-white animate-pulse' : ''
+                      }`}
                   >
                     {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
                   </Button>

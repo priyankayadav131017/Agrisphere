@@ -1,22 +1,33 @@
 #!/usr/bin/env python3
 """
 Improved Voice Assistant for Agricultural Questions
-Provides accurate answers in Hindi and English using Google Gemini API
+Provides accurate answers in Hindi and English using Groq API (Llama 3)
 """
 
 import json
 import re
 from datetime import datetime
-import google.generativeai as genai
 import os
+from dotenv import load_dotenv
+from groq import Groq
 
-# Configure Gemini API
-GENAI_API_KEY = "AIzaSyBeWiL-p4SWZq88eEE1ZP0qixiDKfIKOsI"
-genai.configure(api_key=GENAI_API_KEY)
+# Load environment variables
+load_dotenv()
+
+# Configure Groq API
+# Attempt to get key from environment, fallback to hardcoded if necessary (though env is preferred)
+# Note: In production, rely strictly on os.environ
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY") or os.environ.get("VITE_GROQ_CHATBOT_API_KEY") or "gsk_y256a7183zXj7Z123" # Placeholder if missing, user should ensure env is set
 
 class AgriVoiceAssistant:
     def __init__(self):
-        self.model = genai.GenerativeModel('gemini-2.0-flash')
+        try:
+            self.client = Groq(api_key=GROQ_API_KEY)
+            self.model = "llama-3.3-70b-versatile" # High quality model
+            print(f"AgriVoiceAssistant initialized with Groq model: {self.model}")
+        except Exception as e:
+            print(f"Failed to initialize Groq client: {e}")
+            self.client = None
         self.knowledge_base = self.load_agricultural_knowledge()
         
     def load_agricultural_knowledge(self):
@@ -147,8 +158,8 @@ class AgriVoiceAssistant:
         if any(word in text for word in ['kharif', 'rabi', 'खरीफ', 'रबी']):
             return self.handle_crop_info_query(text, is_hindi)
             
-        # 3. If no local match, try Gemini AI
-        return self.call_gemini_api(text, is_hindi)
+        # 3. If no local match, try Groq AI
+        return self.call_groq_api(text, is_hindi)
 
     def check_local_knowledge(self, text, is_hindi=False):
         """Check if we can answer from local knowledge base"""
@@ -229,11 +240,13 @@ class AgriVoiceAssistant:
                     'timing': "Winter (Rabi)"
                 }
 
-        # If we detected "farming query" but didn't match a crop above, try Gemini for the specific answer
-        return self.call_gemini_api(text, is_hindi)
+        # If we detected "farming query" but didn't match a crop above, try Groq for specific answer
+        return self.call_groq_api(text, is_hindi)
 
-    def call_gemini_api(self, text, is_hindi):
-        """Call Gemini API for general queries with fallback"""
+    def call_groq_api(self, text, is_hindi):
+        """Call Groq API for general queries with fallback"""
+        if not self.client:
+            return self.handle_general_fallback(text, is_hindi)
         try:
              # Construct the prompt
             system_instruction = """You are AgriSphere AI, an expert agricultural assistant for Indian farmers. 
@@ -253,10 +266,20 @@ class AgriVoiceAssistant:
             Do NOT use markdown code blocks. Just valid JSON string.
             If the query is irrelevant to agriculture, politely steer back to farming.
             """
-            full_prompt = f"{system_instruction}\n\nUser Query: {text}"
-            
-            response = self.model.generate_content(full_prompt)
-            response_text = response.text.strip()
+            completion = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_instruction},
+                    {"role": "user", "content": text}
+                ],
+                temperature=0.7,
+                max_tokens=300,
+                top_p=1,
+                stream=False,
+                stop=None,
+            )
+
+            response_text = completion.choices[0].message.content.strip()
             
             # Clean up if the model wrapped it in markdown
             if response_text.startswith("```json"):
@@ -270,13 +293,8 @@ class AgriVoiceAssistant:
             return response_data
             
         except Exception as e:
-            print(f"Gemini API Error (Quota/Network): {e}")
-            # Debugging: Show actual error in UI temporarily
-            return {
-                'text': f"System Error: {str(e)}",
-                'audio_text': "I encountered an error.",
-                'solution': "Check console for details."
-            }
+            print(f"Groq API Error: {e}")
+            return self.handle_general_fallback(text, is_hindi)
 
     def handle_disease_query(self, text, is_hindi):
         """Handle disease-related queries"""
@@ -310,8 +328,8 @@ class AgriVoiceAssistant:
                     'prevention': disease_info['prevention']
                 }
         
-        # If specific disease not found, use Gemini
-        return self.call_gemini_api(text, is_hindi)
+        # If specific disease not found, use Groq
+        return self.call_groq_api(text, is_hindi)
     
     def handle_fertilizer_query(self, text, is_hindi):
         """Handle fertilizer-related queries"""
@@ -324,7 +342,7 @@ class AgriVoiceAssistant:
                     'solution': fert_info['treatment'],
                     'timing': fert_info['timing']
                 }
-        return self.call_gemini_api(text, is_hindi)
+        return self.call_groq_api(text, is_hindi)
     
     def handle_irrigation_query(self, text, is_hindi):
         """Handle irrigation queries"""
@@ -338,12 +356,11 @@ class AgriVoiceAssistant:
                     'solution': f"Frequency: {irr_info['frequency']}",
                     'amount': irr_info['water_amount']
                 }
-        return self.call_gemini_api(text, is_hindi)
+        return self.call_groq_api(text, is_hindi)
     
     def handle_pest_query(self, text, is_hindi):
         """Handle pest-related queries"""
-        # Simple fallback for pests if no specific logic
-        return self.call_gemini_api(text, is_hindi)
+        return self.call_groq_api(text, is_hindi)
     
     def handle_harvest_query(self, text, is_hindi):
         """Handle harvest timing queries"""
@@ -356,56 +373,17 @@ class AgriVoiceAssistant:
                     'solution': "Harvest when grains turn golden",
                     'timing': "March-April"
                 }
-        return self.call_gemini_api(text, is_hindi)
+        return self.call_groq_api(text, is_hindi)
     
     def handle_weather_query(self, text, is_hindi):
         """Handle weather-related queries"""
-        # Always use Gemini for weather logic if possible, or rule based
-        return self.call_gemini_api(text, is_hindi)
-    
-    def handle_crop_info_query(self, text, is_hindi):
-        """Handle crop information queries"""
-        if 'kharif' in text or 'खरीफ' in text:
-            if is_hindi:
-                return {
-                    'text': "खरीफ फसलें बारिश के मौसम में उगाई जाती हैं। मुख्य खरीफ फसलें: धान, मक्का, कपास, गन्ना, ज्वार, बाजरा, अरहर, मूंग, उड़द। ये जून-जुलाई में बोई जाती हैं और अक्टूबर-नवंबर में काटी जाती हैं।",
-                    'audio_text': "खरीफ फसलें धान, मक्का, कपास, गन्ना हैं। बारिश के मौसम में उगाई जाती हैं।",
-                    'solution': "Kharif crops: Rice, Maize, Cotton, Sugarcane",
-                    'timing': "Sowing: June-July, Harvesting: October-November"
-                }
-        elif 'rabi' in text or 'रबी' in text:
-            if is_hindi:
-                return {
-                    'text': "रबी फसलें सर्दी के मौसम में उगाई जाती हैं। मुख्य रबी फसलें: गेहूं, जौ, चना, मटर, सरसों, आलू, प्याज। ये अक्टूबर-दिसंबर में बोई जाती हैं और मार्च-मई में काटी जाती हैं।",
-                    'audio_text': "रबी फसलें गेहूं, जौ, चना, सरसों हैं। सर्दी में उगाई जाती हैं।",
-                    'solution': "Rabi crops: Wheat, Barley, Gram, Mustard",
-                    'timing': "Sowing: October-December, Harvesting: March-May"
-                }
-        
-        # Check for specific crop names like Rice/Dhan
-        if 'rice' in text or 'dhan' in text or 'धान' in text or 'chawal' in text or 'चावल' in text:
-             if is_hindi:
-                return {
-                    'text': "धान (चावल) एक मुख्य खरीफ फसल है। इसकी खेती जून-जुलाई में शुरू होती है। इसे अच्छी बारिश और पानी की आवश्यकता होती है।",
-                    'audio_text': "चावल की खेती जून-जुलाई में बारिश के मौसम में की जाती है।",
-                    'solution': "Sowing: June-July (Kharif Season)",
-                    'timing': "Monsoon Season"
-                }
-             else:
-                return {
-                    'text': "Rice (Paddy) is a major Kharif crop. Its cultivation starts in June-July. It requires good rainfall and standing water.",
-                    'audio_text': "Rice farming is done in June-July during monsoon.",
-                    'solution': "Sowing: June-July (Kharif Season)",
-                    'timing': "Monsoon Season"
-                }
-
-        return self.call_gemini_api(text, is_hindi)
+        return self.call_groq_api(text, is_hindi)
     
     def handle_general_fallback(self, text, is_hindi):
         """Handle general farming queries when AI fails"""
         if is_hindi:
             return {
-                'text': "मैं AgriSphere AI हूं। तकनीकी समस्या के कारण मैं अभी संपर्क नहीं कर पा रहा। कृपया थोड़ी देर बाद प्रयास करें।",
+                'text': "मैं AgriSphere AI हूं। तकनीकी समस्या के कारण में संपर्क नहीं कर पा रहा।",
                 'audio_text': "तकनीकी समस्या है। कृपया बाद में प्रयास करें।",
                 'solution': "Server busy, try again later",
                 'examples': ["फसल में रोग", "खाद की मात्रा", "सिंचाई का समय"]
@@ -445,7 +423,7 @@ def test_voice_assistant():
         "What is the best fertilizer for tomatoes?"
     ]
     
-    print("AgriSphere AI Voice Assistant Test (Gemini Powered)")
+    print("AgriSphere AI Voice Assistant Test (Groq Powered)")
     print("=" * 50)
     
     for query in test_queries:

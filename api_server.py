@@ -13,112 +13,12 @@ from improved_voice_assistant import AgriVoiceAssistant
 import recommendation_engine
 import pest_engine
 import market_engine
-import google.generativeai as genai
-from dotenv import load_dotenv
-load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
 
 # Initialize voice assistant
 voice_assistant = AgriVoiceAssistant()
-
-# Configure Gemini for image validation
-env_path = os.path.join(os.getcwd(), '.env')
-print(f"DEBUG: Current CWD: {os.getcwd()}", flush=True)
-print(f"DEBUG: .env path: {env_path}", flush=True)
-print(f"DEBUG: .env file exists: {os.path.exists(env_path)}", flush=True)
-
-# Manual check for the key in .env if os.getenv fails
-if not os.getenv("GOOGLE_GEMINI_VISION_API_KEY") and os.path.exists(env_path):
-    print("DEBUG: os.getenv returned None, searching .env manually...", flush=True)
-    try:
-        with open(env_path, 'r', encoding='utf-8', errors='ignore') as f:
-            lines = f.readlines()
-            for line in lines:
-                line = line.replace('\x00', '').replace('\ufeff', '').strip()
-                if '=' in line:
-                    key_cand, val_cand = line.split('=', 1)
-                    key_cand = key_cand.strip()
-                    if key_cand == "GOOGLE_GEMINI_VISION_API_KEY":
-                        os.environ["GOOGLE_GEMINI_VISION_API_KEY"] = val_cand.strip().strip('"').strip("'")
-                        print(f"DEBUG: Found GOOGLE_GEMINI_VISION_API_KEY in .env manually!", flush=True)
-                    elif key_cand == "GEMINI_API_KEY":
-                        os.environ["GEMINI_API_KEY"] = val_cand.strip().strip('"').strip("'")
-    except Exception as e:
-        print(f"DEBUG: Manual .env parse failed: {e}", flush=True)
-
-load_dotenv(dotenv_path=env_path, override=True)
-GENAI_API_KEY = os.getenv("GOOGLE_GEMINI_VISION_API_KEY") or os.getenv("GEMINI_API_KEY") or os.getenv("VITE_GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-
-if not GENAI_API_KEY or GENAI_API_KEY == "MISSING":
-    # Last resort hardcoded fallback using the key provided by the user
-    GENAI_API_KEY = "AIzaSyAv2YCKvg3n4fRxH6xD7Cqi3m5Vy0kx__I"
-    print(f"DEBUG: Using hardcoded emergency fallback: {GENAI_API_KEY[:10]}...", flush=True)
-
-print(f"DEBUG: Final GENAI_API_KEY check: {GENAI_API_KEY is not None}", flush=True)
-genai.configure(api_key=GENAI_API_KEY)
-
-# Set this to True to avoid the "stuck" feeling if your API hit is at 0 limit.
-# It will allow images if the API fails, but will log errors.
-BYPASS_VALIDATION_ON_ERROR = True 
-
-def is_plant_image(image_path):
-    """Verify if the image is a plant part or soil using Gemini"""
-    print(f"DEBUG: Validating image: {image_path}", flush=True)
-    
-    if not GENAI_API_KEY or GENAI_API_KEY == "MISSING":
-        print("ERROR: GOOGLE_GEMINI_VISION_API_KEY is missing. Rejecting image.", flush=True)
-        return False
-    
-    # Updated list based on your models_list.txt
-    candidate_models = ['gemini-2.0-flash-exp', 'gemini-flash-latest', 'gemini-pro-latest']
-    
-    prompt = """
-    TASK: VALIDATE IF THE IMAGE IS RELATED TO AGRICULTURE.
-    - Respond YES if the image shows a plant part (leaf, stem, root, soil, fruit, flower, crop).
-    - Respond NO if the image shows anything else (people, animals, buildings, cars, random objects, text, or non-agricultural scenery).
-    - BE STRICT. If unsure, respond NO.
-    - YOUR RESPONSE MUST BE EXACTLY ONE WORD: YES or NO.
-    """
-
-    last_error = ""
-    for model_name in candidate_models:
-        try:
-            print(f"DEBUG: Validating with {model_name}...", flush=True)
-            model = genai.GenerativeModel(model_name)
-            
-            with Image.open(image_path) as img:
-                img.load() 
-                response = model.generate_content([prompt, img])
-            
-            if not response: continue
-                
-            result = response.text.strip().upper()
-            print(f"DEBUG: Gemini ({model_name}) Result: '{result}'", flush=True)
-            
-            if "YES" in result and "NO" not in result:
-                print(f"DEBUG: Pass via {model_name}", flush=True)
-                return True
-            
-            print(f"DEBUG: Reject via {model_name}", flush=True)
-            return False
-                
-        except Exception as e:
-            last_error = str(e)
-            print(f"DEBUG: {model_name} failed: {last_error}", flush=True)
-            # If it's a 429 (Quota), stop immediately to avoid "stuck" behavior
-            if "429" in last_error:
-                print("DEBUG: 429 Quota Exceeded. Failing fast to avoid delay.", flush=True)
-                break 
-            continue
-
-    # All failed or 429 hit
-    if BYPASS_VALIDATION_ON_ERROR:
-        print("WARNING: All models failed. BYPASS_VALIDATION_ON_ERROR is True. Allowing image.", flush=True)
-        return True
-    
-    return False
 # Lazy loading for yield models (load only when needed)
 yield_models_loaded = False
 model = None
@@ -370,10 +270,7 @@ def detect_disease():
             temp_path = temp_file.name
 
         try:
-            # Plant validation is now handled by the frontend for instant feedback.
-            # Backend proceeds directly to disease detection models.
-            
-            # 2. Try Archive4 model first (TensorFlow)
+            # Try Archive4 model first (TensorFlow)
             if os.path.exists('archive4_model_output/model.h5'):
                 predicted_class, confidence = predict_disease_archive4(temp_path)
                 if predicted_class:
@@ -656,7 +553,6 @@ def add_marketplace_listing():
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-
 if __name__ == '__main__':
     print("\n" + "="*50)
     print("AgriSphere AI API Server Starting...")

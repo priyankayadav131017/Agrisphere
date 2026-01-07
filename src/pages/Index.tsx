@@ -115,6 +115,7 @@ const Index = () => {
               { name: "Home", path: "/", public: true },
               { name: "Features", path: "#features", public: true },
               { name: "How It Works", path: "#how-it-works", public: true },
+              { name: "Advisory Hub", path: "/advisory-hub", public: false },
               { name: "Disease Detection", path: "/disease-detection", public: false },
               { name: "Digital Twin", path: "/digital-twin", public: false },
               { name: "Yield Prediction", path: "/yield-prediction", public: false },
